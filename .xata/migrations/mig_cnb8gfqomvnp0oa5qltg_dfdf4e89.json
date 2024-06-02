@@ -1,0 +1,16 @@
+{
+  "id": "mig_cnb8gfqomvnp0oa5qltg",
+  "parentID": "mig_cnb8gcaomvnp0oa5qlsg",
+  "checksum": "1:dfdf4e897197991371f88436bd9435b1110f1b3669b45842ebc94ffbb31cbd25",
+  "operations": [
+    {
+      "addColumn": {
+        "column": {
+          "name": "level",
+          "type": "int"
+        },
+        "table": "skills"
+      }
+    }
+  ]
+}

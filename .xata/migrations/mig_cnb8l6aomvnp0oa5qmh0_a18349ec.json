@@ -1,0 +1,16 @@
+{
+  "id": "mig_cnb8l6aomvnp0oa5qmh0",
+  "parentID": "mig_cnb8l3qomvnp0oa5qmg0",
+  "checksum": "1:a18349ec0fa834279c2136dbbb305cd5d23ca068e5289014a95f1d68e6d42c3d",
+  "operations": [
+    {
+      "addColumn": {
+        "column": {
+          "name": "thumbnail",
+          "type": "file"
+        },
+        "table": "projects"
+      }
+    }
+  ]
+}

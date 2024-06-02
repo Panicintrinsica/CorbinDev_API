@@ -1,0 +1,18 @@
+{
+  "id": "mig_cnb8s2iomvnp0oa5qnf0",
+  "parentID": "mig_cnb8rtiomvnp0oa5qne0",
+  "checksum": "1:104ce83896a21b06a1c407694a4f710158f88155236373e3ba069bb638ee9bab",
+  "operations": [
+    {
+      "addColumn": {
+        "column": {
+          "name": "isPublic",
+          "type": "bool",
+          "notNull": true,
+          "defaultValue": "false"
+        },
+        "table": "schools"
+      }
+    }
+  ]
+}

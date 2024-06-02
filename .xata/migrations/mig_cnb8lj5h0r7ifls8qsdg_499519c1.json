@@ -1,0 +1,18 @@
+{
+  "id": "mig_cnb8lj5h0r7ifls8qsdg",
+  "parentID": "mig_cnb8lgth0r7ifls8qscg",
+  "checksum": "1:499519c1512195fc00cd2d8456fa077d4b33874d65a1e590c54dfb3533a08539",
+  "operations": [
+    {
+      "addColumn": {
+        "column": {
+          "name": "isCurrent",
+          "type": "bool",
+          "notNull": true,
+          "defaultValue": "false"
+        },
+        "table": "projects"
+      }
+    }
+  ]
+}

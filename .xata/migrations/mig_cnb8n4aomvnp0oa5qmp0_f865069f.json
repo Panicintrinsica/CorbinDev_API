@@ -1,0 +1,16 @@
+{
+  "id": "mig_cnb8n4aomvnp0oa5qmp0",
+  "parentID": "mig_cnb8n0iomvnp0oa5qmo0",
+  "checksum": "1:f865069f8daadd190f092afeb8d5df34a55d332c2ed3d40148ae0c4733e90bca",
+  "operations": [
+    {
+      "addColumn": {
+        "column": {
+          "name": "content",
+          "type": "text"
+        },
+        "table": "articles"
+      }
+    }
+  ]
+}

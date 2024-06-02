@@ -1,0 +1,19 @@
+{
+  "id": "mig_cnf6075lmsl85qi2n7ig",
+  "parentID": "mig_cnf601ldo47p3g5ce04g",
+  "checksum": "1:9c04a938b91c7ecf1c2a4f68514d851747b2f151432d5bcb05654363db41f57c",
+  "operations": [
+    {
+      "addColumn": {
+        "column": {
+          "name": "images",
+          "type": "file[]",
+          "file[]": {
+            "defaultPublicAccess": true
+          }
+        },
+        "table": "projects"
+      }
+    }
+  ]
+}

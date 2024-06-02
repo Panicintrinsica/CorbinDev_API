@@ -1,0 +1,17 @@
+{
+  "id": "mig_cnb8mpqomvnp0oa5qmn0",
+  "parentID": "mig_cnb8mk5h0r7ifls8qsi0",
+  "checksum": "1:ba11d0064e68b81538409d0388fbdc39a5a462545e0cbe1b84e1358c841f2e56",
+  "operations": [
+    {
+      "addColumn": {
+        "column": {
+          "name": "title",
+          "type": "string",
+          "unique": true
+        },
+        "table": "articles"
+      }
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "id": "mig_cnb8rdqomvnp0oa5qn80",
+  "parentID": "mig_cnb8rb2omvnp0oa5qn70",
+  "checksum": "1:544027cc24c37b26ef5bce5e1b3841b071f83bdcacd4fb8f2438877724039ad1",
+  "operations": [
+    {
+      "addColumn": {
+        "column": {
+          "name": "gpaMax",
+          "type": "float",
+          "notNull": true,
+          "defaultValue": "4.0"
+        },
+        "table": "schools"
+      }
+    }
+  ]
+}

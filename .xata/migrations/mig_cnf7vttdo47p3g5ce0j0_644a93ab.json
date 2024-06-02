@@ -1,0 +1,13 @@
+{
+  "id": "mig_cnf7vttdo47p3g5ce0j0",
+  "parentID": "mig_cnf7jcldo47p3g5ce0h0",
+  "checksum": "1:644a93ab3f1974d943e9669369f0ded36172081421ad66f8fa12a97038c8b8cf",
+  "operations": [
+    {
+      "removeColumn": {
+        "column": "skills",
+        "table": "projects"
+      }
+    }
+  ]
+}

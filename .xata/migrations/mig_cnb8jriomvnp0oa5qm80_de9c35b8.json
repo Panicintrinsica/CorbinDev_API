@@ -1,0 +1,16 @@
+{
+  "id": "mig_cnb8jriomvnp0oa5qm80",
+  "parentID": "mig_cnb8jplh0r7ifls8qsag",
+  "checksum": "1:de9c35b81a5faecfbf7791a0ce5588f8a83f4e0a231be9f2c234028ba1ee685c",
+  "operations": [
+    {
+      "addColumn": {
+        "column": {
+          "name": "longDescription",
+          "type": "text"
+        },
+        "table": "projects"
+      }
+    }
+  ]
+}

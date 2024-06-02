@@ -1,0 +1,14 @@
+{
+  "id": "mig_cnb8g5qomvnp0oa5qlo0",
+  "parentID": "mig_cnb8g32omvnp0oa5qln0",
+  "checksum": "1:19855a3552063b05291fd791fb7bdb5917dc057f75215a08a5c69601ae7d2173",
+  "operations": [
+    {
+      "renameColumn": {
+        "newName": "learned",
+        "oldName": "added",
+        "table": "skills"
+      }
+    }
+  ]
+}

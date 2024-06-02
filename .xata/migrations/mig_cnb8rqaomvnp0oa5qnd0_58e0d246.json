@@ -1,0 +1,16 @@
+{
+  "id": "mig_cnb8rqaomvnp0oa5qnd0",
+  "parentID": "mig_cnb8roaomvnp0oa5qnc0",
+  "checksum": "1:58e0d24607f38d093cbd9895fb9c1c69f6552be0b541090c6541bd0c4c5c360e",
+  "operations": [
+    {
+      "addColumn": {
+        "column": {
+          "name": "honors",
+          "type": "string"
+        },
+        "table": "schools"
+      }
+    }
+  ]
+}

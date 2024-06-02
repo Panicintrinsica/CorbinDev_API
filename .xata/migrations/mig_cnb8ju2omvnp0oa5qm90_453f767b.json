@@ -1,0 +1,16 @@
+{
+  "id": "mig_cnb8ju2omvnp0oa5qm90",
+  "parentID": "mig_cnb8jriomvnp0oa5qm80",
+  "checksum": "1:453f767b2b6edb384b3c917a0b71eb3376c8d99754defe19463aa0a91345cae4",
+  "operations": [
+    {
+      "addColumn": {
+        "column": {
+          "name": "client",
+          "type": "string"
+        },
+        "table": "projects"
+      }
+    }
+  ]
+}

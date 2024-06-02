@@ -1,0 +1,16 @@
+{
+  "id": "mig_cnb8hsqomvnp0oa5qm3g",
+  "parentID": "mig_cnb8hpaomvnp0oa5qm2g",
+  "checksum": "1:5dfdf1f6516f448341c574ea5a0c481659e25ab87533444ad02afa76fd6e6807",
+  "operations": [
+    {
+      "addColumn": {
+        "column": {
+          "name": "notes",
+          "type": "text"
+        },
+        "table": "skills"
+      }
+    }
+  ]
+}

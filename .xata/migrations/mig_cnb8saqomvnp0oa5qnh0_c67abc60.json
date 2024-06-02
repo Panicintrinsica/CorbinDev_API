@@ -1,0 +1,16 @@
+{
+  "id": "mig_cnb8saqomvnp0oa5qnh0",
+  "parentID": "mig_cnb8s7aomvnp0oa5qng0",
+  "checksum": "1:c67abc6053de19004b068194c2fd190f24034749227078feb6b209a268902f09",
+  "operations": [
+    {
+      "addColumn": {
+        "column": {
+          "name": "link",
+          "type": "string"
+        },
+        "table": "schools"
+      }
+    }
+  ]
+}

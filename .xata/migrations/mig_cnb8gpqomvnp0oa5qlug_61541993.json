@@ -1,0 +1,18 @@
+{
+  "id": "mig_cnb8gpqomvnp0oa5qlug",
+  "parentID": "mig_cnb8gfqomvnp0oa5qltg",
+  "checksum": "1:615419937dc3125abbdd78b6e3b980a7d76efc5ce739ea78f198468681cd5928",
+  "operations": [
+    {
+      "addColumn": {
+        "column": {
+          "name": "years",
+          "type": "int",
+          "notNull": true,
+          "defaultValue": "0"
+        },
+        "table": "skills"
+      }
+    }
+  ]
+}

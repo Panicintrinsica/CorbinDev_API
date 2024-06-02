@@ -1,0 +1,18 @@
+{
+  "id": "mig_cnb8hbiomvnp0oa5qm1g",
+  "parentID": "mig_cnb8h8th0r7ifls8qs6g",
+  "checksum": "1:095b50151168e96f5a2a9f30962aa145313f2311aa248c9f3d1d840edbc4e410",
+  "operations": [
+    {
+      "addColumn": {
+        "column": {
+          "name": "featured",
+          "type": "bool",
+          "notNull": true,
+          "defaultValue": "false"
+        },
+        "table": "skills"
+      }
+    }
+  ]
+}

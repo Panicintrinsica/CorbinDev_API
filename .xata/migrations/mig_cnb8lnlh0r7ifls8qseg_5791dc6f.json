@@ -1,0 +1,18 @@
+{
+  "id": "mig_cnb8lnlh0r7ifls8qseg",
+  "parentID": "mig_cnb8lj5h0r7ifls8qsdg",
+  "checksum": "1:5791dc6f6e81df5b55614883c5a2818dcc76ed6df8738d099f4a7d89087d2a3c",
+  "operations": [
+    {
+      "addColumn": {
+        "column": {
+          "name": "hasNotes",
+          "type": "bool",
+          "notNull": true,
+          "defaultValue": "false"
+        },
+        "table": "projects"
+      }
+    }
+  ]
+}
