@@ -1,0 +1,21 @@
+{
+  "name": "corbin-backend",
+  "module": "src/index.ts",
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "start:dev": "bun --watch src/index.ts"
+  },
+  "dependencies": {
+    "@xata.io/client": "^0.29.1",
+    "@xata.io/kysely": "^0.1.18",
+    "hono": "^4.0.5",
+    "kysely": "^0.26.1"
+  }
+}
