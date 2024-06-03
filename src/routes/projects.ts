@@ -1,7 +1,6 @@
 import { Hono } from 'hono';
 import {getXataClient} from '../xata';
 
-
 const xata = getXataClient();
 
 const projects = new Hono();
@@ -9,7 +8,7 @@ const projects = new Hono();
 projects.get('/', async (c) => {
     let projects =
         await xata.db.projects
-            .select(['name', 'thumbnail.url', 'hasNotes', 'slug', 'shortDescription', 'showLink', 'link', 'group', 'category', 'skills'])
+            .select(['name', 'thumbnail.url', 'slug', 'shortDescription', 'hasNotes', 'showLink', 'link', 'group', 'category'])
             .sort('started', 'desc')
             .getAll();
     return c.json(projects);
@@ -32,16 +31,10 @@ projects.get('/:slug', async (c) => {
 });
 
 projects.get('/bySkill/:id', async (c) => {
-    let skillID = c.req.param('id');
-
-    if (!skillID) {
-        return c.json('invalid skill id');
-    }
-
     let projects =  await xata.db.projects
         .filter({
-        skills: { $includes: skillID },
-    })
+            skills: { $includes: c.req.param('id') },
+        })
         .select(['name', 'slug', 'group'])
         .getMany();
 

@@ -13,9 +13,10 @@
     "start:dev": "bun --watch src/index.ts"
   },
   "dependencies": {
-    "@xata.io/client": "^0.29.1",
-    "@xata.io/kysely": "^0.1.18",
-    "hono": "^4.0.5",
+    "@xata.io/client": "^0.29.5",
+    "@xata.io/kysely": "^0.1.21",
+    "argon2": "^0.40.3",
+    "hono": "^4.4.2",
     "kysely": "^0.26.1"
   }
 }
