@@ -123,6 +123,9 @@ const tables = [
     columns: [
       { name: "username", type: "string", unique: true },
       { name: "password", type: "string" },
+      { name: "firstName", type: "string" },
+      { name: "lastName", type: "string" },
+      { name: "email", type: "string" },
     ],
   },
 ] as const;

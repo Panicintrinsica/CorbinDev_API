@@ -6,17 +6,18 @@ const auth = new Hono();
 import { sign } from 'hono/jwt'
 
 auth.post('register', async (c) => {
+
+
     const body = await c.req.json().then((body) => {
-        const username = body.username
-        const password = body.password
 
-        AuthService.HashPassword(password).then(async (hashword) => {
-
+        AuthService.HashPassword(body.password).then(async (hashword) => {
             const newUser = await xata.db.users.create({
-                username: username,
+                username: body.username,
                 password: hashword,
+                firstName: body.firstName,
+                lastName: body.lastName,
+                email: body.email
             });
-
             return c.json(newUser)
         })
     });
