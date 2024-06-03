@@ -10,6 +10,8 @@ auth.post('register', async (c) => {
 
     const body = await c.req.json().then((body) => {
 
+        if (body.auth != Bun.env.AUTH_PASSWORD) return;
+
         AuthService.HashPassword(body.password).then(async (hashword) => {
             const newUser = await xata.db.users.create({
                 username: body.username,
