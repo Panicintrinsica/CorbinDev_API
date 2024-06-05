@@ -31,14 +31,13 @@ projects.get('/:slug', async (c) => {
 });
 
 projects.get('/bySkill/:id', async (c) => {
-    let projects =  await xata.db.projects
-        .filter({
-            skills: { $includes: c.req.param('id') },
-        })
-        .select(['name', 'slug', 'group'])
-        .getMany();
-
-    return c.json(projects);
+    const skillID = c.req.param('id');
+    const skills =
+        await xata.db.projects_skills
+            .filter({ 'skill.id': skillID })
+            .select(['project.id', 'project.name', 'project.group', 'project.slug'])
+            .getAll()
+    return c.json(skills);
 });
 
 export default projects;
