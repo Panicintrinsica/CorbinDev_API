@@ -29,3 +29,8 @@ Bun.serve({
 });
 
 console.log(`Application is running and listening on port ${port}`);
+
+await Bun.build({
+    entrypoints: ['./index.ts'],
+    outdir: './built'
+})
