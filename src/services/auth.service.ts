@@ -1,17 +1,16 @@
-import argon2 from "argon2";
 import { sign, verify } from 'hono/jwt'
 
 export class AuthService {
     static async HashPassword(password: string) {
-        return await argon2.hash(password, {
-            type: argon2.argon2id,
+        return await Bun.password.hash(password, {
+            algorithm: "argon2id",
             timeCost: 6,
-            hashLength: 64
+            memoryCost: 6
         });
     }
 
     static async VerifyPassword(password: string, hash: string) {
-        return await argon2.verify(hash, password)
+        return await Bun.password.verify(hash, password)
     }
 
     static async signToken(userID: string){

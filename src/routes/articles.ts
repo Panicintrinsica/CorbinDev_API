@@ -1,37 +1,34 @@
-import { Hono } from 'hono';
-import { getXataClient } from '../xata';
+import { Hono } from "hono";
+import { getXataClient } from "../xata";
 
 const xata = getXataClient();
-
 const articles = new Hono();
 
-articles.get('page/:size/:offset', async (c) => {
-    const size = Number(c.req.param('size'));
-    const offset = Number(c.req.param('offset'));
+articles.post("getWithFilters", async (c) => {
+  const { size, offset, tags } = await c.req.json();
 
-    const page = await xata.db.articles
-        .select(["title", "slug", "aboveFold", "tags", "category"])
-        .sort("xata.createdAt", "desc")
-        .getPaginated({
-            pagination: {
-                size, offset: Number(offset * size),
-            },
-        });
+  const page = await xata.db.articles
+    .select(["title", "slug", "aboveFold", "tags", "category"])
+    .filter({
+      category: { $any: tags },
+    })
+    .sort("xata.createdAt", "desc")
+    .getPaginated({
+      pagination: {
+        size,
+        offset: Number(offset * size),
+      },
+    });
 
-    return c.json(page);
+  return c.json(page);
 });
 
+articles.get("single/:slug", async (c) => {
+  const slug = c.req.param("slug");
 
-articles.get('single/:slug', async (c) => {
+  const article = await xata.db.articles.filter({ slug: slug }).getFirst();
 
-    const slug = c.req.param('slug');
-
-    const article = await xata.db.articles
-        .filter({slug: slug})
-        .getFirst();
-
-    return c.json(article);
+  return c.json(article);
 });
 
 export default articles;
-

@@ -1,16 +1,16 @@
 import {getXataClient} from "../xata.ts";
 import {Hono} from "hono";
-import {AuthService} from "../utilities/auth.util.ts";
+import {AuthService} from "../services/auth.service.ts";
 const xata = getXataClient();
 const auth = new Hono();
 import { sign } from 'hono/jwt'
 
 auth.post('register', async (c) => {
 
-
     const body = await c.req.json().then((body) => {
 
-        if (body.auth != Bun.env.AUTH_PASSWORD) return;
+        // Refuse to register the client if they don't provide the master auth password
+        if (body.auth != Bun.env.AUTHPASS) return;
 
         AuthService.HashPassword(body.password).then(async (hashword) => {
             const newUser = await xata.db.users.create({
@@ -20,6 +20,7 @@ auth.post('register', async (c) => {
                 lastName: body.lastName,
                 email: body.email
             });
+
             return c.json(newUser)
         })
     });
