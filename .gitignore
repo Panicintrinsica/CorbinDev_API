@@ -177,3 +177,9 @@ dist
 **/.xatarc
 apps/**/xata.codegen.ts
 xata.codegen.ts
+
+package-lock.json
+.dockerignore
+
+build
+bun.lockb
