@@ -6602,10 +6602,11 @@ var getXataClient = () => {
 // src/routes/articles.ts
 var xata2 = getXataClient();
 var articles = new Hono2;
-articles.get("page/:size/:offset", async (c) => {
-  const size = Number(c.req.param("size"));
-  const offset = Number(c.req.param("offset"));
-  const page = await xata2.db.articles.select(["title", "slug", "aboveFold", "tags", "category"]).sort("xata.createdAt", "desc").getPaginated({
+articles.post("getWithFilters", async (c) => {
+  const { size, offset, tags } = await c.req.json();
+  const page = await xata2.db.articles.select(["title", "slug", "aboveFold", "tags", "category"]).filter({
+    category: { $any: tags }
+  }).sort("xata.createdAt", "desc").getPaginated({
     pagination: {
       size,
       offset: Number(offset * size)
@@ -6664,7 +6665,26 @@ var skills_default = skills;
 var xata6 = getXataClient();
 var projects = new Hono2;
 projects.get("/", async (c) => {
-  let projects2 = await xata6.db.projects.select(["name", "thumbnail.url", "slug", "shortDescription", "hasNotes", "showLink", "link", "group", "category"]).sort("started", "desc").getAll();
+  let projects2 = await xata6.db.projects.select([
+    "name",
+    "thumbnail.url",
+    "slug",
+    "shortDescription",
+    "hasNotes",
+    "showLink",
+    "link",
+    "group",
+    "category"
+  ]).sort("started", "desc").getAll();
+  return c.json(projects2);
+});
+projects.get("/forCV", async (c) => {
+  let projects2 = await xata6.db.projects.select(["name", "role", "skills", "shortDescription", "link"]).sort("started", "desc").getAll();
+  return c.json(projects2);
+});
+projects.get("/stubs", async (c) => {
+  let projects2 = await xata6.db.projects.select(["name", "started", "ended", "group", "slug"]).sort("started", "desc").getAll();
+  console.log(projects2);
   return c.json(projects2);
 });
 projects.get("/byGroup/:group", async (c) => {
@@ -7108,7 +7128,7 @@ var verify2 = Jwt.verify;
 var decode2 = Jwt.decode;
 var sign2 = Jwt.sign;
 
-// src/utilities/auth.util.ts
+// src/services/auth.service.ts
 class AuthService {
   static async HashPassword(password) {
     return await Bun.password.hash(password, {
@@ -7141,7 +7161,7 @@ var xata14 = getXataClient();
 var auth = new Hono2;
 auth.post("register", async (c) => {
   const body2 = await c.req.json().then((body3) => {
-    if (body3.auth != Bun.env.AUTH_PASSWORD)
+    if (body3.auth != Bun.env.AUTHPASS)
       return;
     AuthService.HashPassword(body3.password).then(async (hashword) => {
       const newUser = await xata14.db.users.create({
