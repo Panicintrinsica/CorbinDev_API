@@ -31,4 +31,32 @@ articles.get("single/:slug", async (c) => {
   return c.json(article);
 });
 
+articles.post("search", async (c) => {
+  const { searchString } = await c.req.json();
+
+  const sanitizedString = searchString.replace(/[^a-zA-Z0-9 ]/g, "");
+
+  const results = await xata.db.articles.search(sanitizedString, {
+    target: ["title", "aboveFold", "tags", "category", "content"],
+    boosters: [
+      { valueBooster: { column: "tags", value: sanitizedString, factor: 5 } },
+    ],
+    fuzziness: 2,
+    prefix: "phrase",
+  });
+
+  const formattedResults = results.records.map((article) => ({
+    title: article.title,
+    slug: article.slug,
+    aboveFold: article.aboveFold,
+    tags: article.tags,
+    category: article.category,
+  }));
+
+  return c.json({
+    records: formattedResults,
+    totalCount: results.totalCount,
+  });
+});
+
 export default articles;
