@@ -58,7 +58,7 @@ const tables = [
         type: "file[]",
         "file[]": { defaultPublicAccess: true },
       },
-      { name: "skills", type: "multiple" },
+      { name: "cvDescription", type: "text" },
     ],
     revLinks: [{ column: "project", table: "projects_skills" }],
   },

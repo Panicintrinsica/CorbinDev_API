@@ -39,19 +39,21 @@ articles.post("search", async (c) => {
   const results = await xata.db.articles.search(sanitizedString, {
     target: ["title", "aboveFold", "tags", "category", "content"],
     boosters: [
-      { valueBooster: { column: "tags", value: sanitizedString, factor: 5 } },
+      { valueBooster: { column: "tags", value: sanitizedString, factor: 3 } },
     ],
-    fuzziness: 2,
+    fuzziness: 1,
     prefix: "phrase",
   });
 
-  const formattedResults = results.records.map((article) => ({
-    title: article.title,
-    slug: article.slug,
-    aboveFold: article.aboveFold,
-    tags: article.tags,
-    category: article.category,
-  }));
+  const formattedResults = results.records
+    .filter((article) => (article.xata?.score ?? 0) >= 1) // Handle undefined score with default value
+    .map((article) => ({
+      title: article.title,
+      slug: article.slug,
+      aboveFold: article.aboveFold,
+      tags: article.tags,
+      category: article.category,
+    }));
 
   return c.json({
     records: formattedResults,

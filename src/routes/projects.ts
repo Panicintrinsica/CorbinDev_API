@@ -5,35 +5,59 @@ const xata = getXataClient();
 
 const projects = new Hono();
 
-projects.get("/", async (c) => {
+/**
+ * Gets a list of public projects
+ */
+projects.get("", async (c) => {
   let projects = await xata.db.projects
-    .select([
-      "name",
-      "thumbnail.url",
-      "slug",
-      "shortDescription",
-      "hasNotes",
-      "showLink",
-      "link",
-      "group",
-      "category",
-    ])
+    .filter({ isPublic: true })
     .sort("started", "desc")
     .getAll();
   return c.json(projects);
 });
 
-projects.get("/forCV", async (c) => {
+/**
+ * Gets a list of all projects by a specific group
+ */
+projects.get("/byGroup/:group", async (c) => {
+  const group = c.req.param("group");
   let projects = await xata.db.projects
-    .select(["name", "role", "skills", "shortDescription", "link"])
-    .sort("started", "desc")
+    .filter({ group, isPublic: true })
     .getAll();
   return c.json(projects);
 });
 
-projects.get("/stubs", async (c) => {
+/**
+ * Gets the full details of a specific project by its slug
+ */
+projects.get("/bySlug/:slug", async (c) => {
+  const slug = c.req.param("slug");
+
+  let project = await xata.db.projects
+    .filter({ slug, isPublic: true })
+    .getFirst();
+
+  return c.json(project);
+});
+
+/**
+ * Gets a list of all projects that used a specific skill
+ */
+projects.get("/bySkill/:id", async (c) => {
+  const skillID = c.req.param("id");
+  const skills = await xata.db.projects_skills
+    .filter({ "skill.id": skillID, "project.isPublic": true })
+    .select(["project.id", "project.name", "project.group", "project.slug"])
+    .getAll();
+  return c.json(skills);
+});
+
+/**
+ * Gets the full index of all projects
+ */
+projects.get("/fullIndex", async (c) => {
   let projects = await xata.db.projects
-    .select(["name", "started", "ended", "group", "slug"])
+    .select(["name", "id"])
     .sort("started", "desc")
     .getAll();
 
@@ -41,27 +65,26 @@ projects.get("/stubs", async (c) => {
   return c.json(projects);
 });
 
-projects.get("/byGroup/:group", async (c) => {
-  const group = c.req.param("group");
-  let projects = await xata.db.projects.filter({ group }).getAll();
-  return c.json(projects);
-});
-
-projects.get("/:slug", async (c) => {
-  const slug = c.req.param("slug");
-
-  let project = await xata.db.projects.filter({ slug }).getFirst();
-
-  return c.json(project);
-});
-
-projects.get("/bySkill/:id", async (c) => {
-  const skillID = c.req.param("id");
-  const skills = await xata.db.projects_skills
-    .filter({ "skill.id": skillID })
-    .select(["project.id", "project.name", "project.group", "project.slug"])
+/**
+ * Gets the CV entries for the requested projects
+ * @param {string[]} ids - a string array of project IDs
+ */
+projects.post("forCV", async (c) => {
+  let { ids } = await c.req.json();
+  const projects = await xata.db.projects
+    .filter({ id: { $any: ids } })
+    .select([
+      "name",
+      "role",
+      "client",
+      "cvDescription",
+      "link",
+      "started",
+      "ended",
+    ])
     .getAll();
-  return c.json(skills);
+
+  return c.json(projects);
 });
 
 export default projects;

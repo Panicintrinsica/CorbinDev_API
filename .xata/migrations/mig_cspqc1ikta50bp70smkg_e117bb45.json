@@ -1,0 +1,16 @@
+{
+  "id": "mig_cspqc1ikta50bp70smkg",
+  "parentID": "mig_cspqbmikta50bp70smjg",
+  "checksum": "1:e117bb4501b12db61c510d332ddb649c62f338b63a7096589d0c9546b89f03d4",
+  "operations": [
+    {
+      "addColumn": {
+        "column": {
+          "name": "cvDescription",
+          "type": "text"
+        },
+        "table": "projects"
+      }
+    }
+  ]
+}
