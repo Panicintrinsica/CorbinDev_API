@@ -5,10 +5,13 @@ docker-compose*
 .git
 .gitignore
 README.md
-LICENSE
 .vscode
 Makefile
 helm-charts
+.env
 .editorconfig
 .idea
-coverage*
+/api/src/tests
+cache.sqlite
+build
+.DS_Store

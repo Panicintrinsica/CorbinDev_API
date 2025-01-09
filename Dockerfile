@@ -1,22 +1,32 @@
-FROM oven/bun AS build
-WORKDIR /app
+FROM oven/bun:1.1.42-alpine AS base
+WORKDIR /src/app
 
-COPY bun.lockb .
-COPY package.json .
+FROM base AS install
+RUN mkdir -p /temp/dev
+COPY package.json bun.lockb /temp/dev/
+RUN cd /temp/dev && bun install --frozen-lockfile
 
-RUN bun install --frozen-lockfile
 
+RUN mkdir -p /temp/prod
+COPY package.json bun.lockb /temp/prod/
+RUN cd /temp/prod && bun install --frozen-lockfile --production
+
+
+FROM base AS prerelease
+COPY --from=install /temp/dev/node_modules ./node_modules
+COPY package.json bun.lockb tsconfig.json ./
 COPY src ./src
 
-# compile everything to a binary called cli which includes the bun runtime
-RUN bun build ./src/index.ts --compile --outfile cli
+RUN bun build src/index.ts --outdir ./build --target=bun
 
-FROM node:18-alpine
+FROM base AS release
 
-WORKDIR /app
+COPY --from=prerelease /src/app/build/index.js .
 
-# copy the compiled binary from the build image
-COPY --from=build /app/cli /app/cli
+WORKDIR /src/app
 
-# execute the binary!
-CMD ["/app/cli"]
+RUN mkdir -p /src/app && chown bun:bun /src/app
+USER bun
+
+EXPOSE 5250/tcp
+ENTRYPOINT [ "bun", "index.js" ]

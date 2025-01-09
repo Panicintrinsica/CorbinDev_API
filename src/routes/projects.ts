@@ -1,5 +1,6 @@
 import { Hono } from "hono";
-import { getXataClient } from "../xata";
+import { getXataClient } from "../xata.ts";
+import { CacheType, handleCache } from "../services/cache.service.ts";
 
 const xata = getXataClient();
 
@@ -9,11 +10,16 @@ const projects = new Hono();
  * Gets a list of public projects
  */
 projects.get("", async (c) => {
-  let projects = await xata.db.projects
-    .filter({ isPublic: true })
-    .sort("started", "desc")
-    .getAll();
-  return c.json(projects);
+  const data = await handleCache(
+    "proj_public",
+    CacheType.COLLECTION,
+    xata.db.projects
+      .filter({ isPublic: true })
+      .sort("started", "desc")
+      .getAll(),
+  );
+
+  return c.json(data);
 });
 
 /**
@@ -21,10 +27,14 @@ projects.get("", async (c) => {
  */
 projects.get("/byGroup/:group", async (c) => {
   const group = c.req.param("group");
-  let projects = await xata.db.projects
-    .filter({ group, isPublic: true })
-    .getAll();
-  return c.json(projects);
+
+  const data = await handleCache(
+    `proj_${group}`,
+    CacheType.COLLECTION,
+    xata.db.projects.filter({ group, isPublic: true }).getAll(),
+  );
+
+  return c.json(data);
 });
 
 /**
@@ -33,11 +43,13 @@ projects.get("/byGroup/:group", async (c) => {
 projects.get("/bySlug/:slug", async (c) => {
   const slug = c.req.param("slug");
 
-  let project = await xata.db.projects
-    .filter({ slug, isPublic: true })
-    .getFirst();
+  const data = await handleCache(
+    slug,
+    CacheType.PROJECT,
+    xata.db.projects.filter({ slug, isPublic: true }).getFirst(),
+  );
 
-  return c.json(project);
+  return c.json(data);
 });
 
 /**
@@ -45,11 +57,17 @@ projects.get("/bySlug/:slug", async (c) => {
  */
 projects.get("/bySkill/:id", async (c) => {
   const skillID = c.req.param("id");
-  const skills = await xata.db.projects_skills
-    .filter({ "skill.id": skillID, "project.isPublic": true })
-    .select(["project.id", "project.name", "project.group", "project.slug"])
-    .getAll();
-  return c.json(skills);
+
+  const data = await handleCache(
+    `proj_${skillID}`,
+    CacheType.COLLECTION,
+    xata.db.projects_skills
+      .filter({ "skill.id": skillID, "project.isPublic": true })
+      .select(["project.id", "project.name", "project.group", "project.slug"])
+      .getAll(),
+  );
+
+  return c.json(data);
 });
 
 /**

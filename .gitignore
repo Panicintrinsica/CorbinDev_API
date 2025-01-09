@@ -174,7 +174,7 @@ dist
 # Finder (MacOS) folder config
 .DS_Store
 
-**/.xatarc
+.xatarc
 apps/**/xata.codegen.ts
 xata.codegen.ts
 
@@ -183,3 +183,4 @@ package-lock.json
 
 build
 bun.lockb
+src/keys/
