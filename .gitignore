@@ -182,5 +182,4 @@ package-lock.json
 .dockerignore
 
 build
-bun.lockb
 src/keys/
