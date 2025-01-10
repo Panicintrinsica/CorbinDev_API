@@ -63,7 +63,7 @@ skills.get("/byProject/:id", async (c) => {
   const projectID = c.req.param("id");
 
   const data = await handleCache(
-    "skills_byProject",
+    `skills_project_${projectID}`,
     CacheType.COLLECTION,
     xata.db.projects_skills
       .filter({ "project.id": projectID })

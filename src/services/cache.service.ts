@@ -86,7 +86,6 @@ async function handleCache<T>(
   const cache = cacheLoad(cacheKey, cacheType);
 
   if (cache) {
-    // Return cached data if available
     return cache;
   }
 

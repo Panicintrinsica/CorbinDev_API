@@ -183,3 +183,5 @@ package-lock.json
 
 build
 src/keys/
+
+cache.sqlite
