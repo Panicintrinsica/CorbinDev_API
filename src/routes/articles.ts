@@ -67,6 +67,7 @@ articles.post("search", async (c) => {
       aboveFold: article.aboveFold,
       tags: article.tags,
       category: article.category,
+      xata: article.xata,
     }));
 
   return c.json({
