@@ -14,9 +14,9 @@
     "build": "bun build src/index.ts --outdir ./build --target=bun"
   },
   "dependencies": {
-    "@xata.io/client": "^0.29.5",
-    "@xata.io/kysely": "^0.1.21",
+    "@types/mongoose-unique-validator": "^1.0.9",
     "hono": "^4.4.2",
-    "kysely": "^0.26.1"
+    "mongoose": "^8.9.4",
+    "mongoose-unique-validator": "^4.0.1"
   }
 }

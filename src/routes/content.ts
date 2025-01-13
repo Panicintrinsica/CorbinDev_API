@@ -1,33 +1,29 @@
 import { Hono } from "hono";
-import { getXataClient } from "../xata.ts";
-import { CacheType, handleCache } from "../services/cache.service.ts";
-
-const xata = getXataClient();
+import DB_ContentBlock from "../schema/contentBlock.schema.ts";
 
 const siteContent = new Hono();
 
 siteContent.get("/:selector", async (c) => {
   const selector = c.req.param("selector");
 
-  const data = await handleCache(
-    selector,
-    CacheType.CONTENT,
-    xata.db.content.filter({ slug: selector }).getFirst(),
-  );
+  const page = await DB_ContentBlock.find({ page: selector });
 
-  return c.json(data);
+  return c.json(page);
 });
 
-siteContent.get("/group/:selector", async (c) => {
-  const selector = c.req.param("selector");
+siteContent.post("admin", async (c) => {
+  const { page, uri, title, body } = await c.req.json();
 
-  const data = await handleCache(
-    `g_${selector}`,
-    CacheType.CONTENT,
-    xata.db.content.filter({ group: selector }).getMany(),
-  );
+  const block = new DB_ContentBlock({
+    page,
+    uri,
+    title,
+    body,
+  });
 
-  return c.json(data);
+  await block.save();
+
+  return c.json(block);
 });
 
 export default siteContent;

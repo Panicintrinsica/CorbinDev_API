@@ -1,8 +1,6 @@
 import { Hono } from "hono";
-import { getXataClient } from "../xata.ts";
-import { CacheType, handleCache } from "../services/cache.service.ts";
-
-const xata = getXataClient();
+import DB_Project from "../schema/project.schema.ts";
+import { createURI } from "../util.ts";
 
 const projects = new Hono();
 
@@ -10,99 +8,81 @@ const projects = new Hono();
  * Gets a list of public projects
  */
 projects.get("", async (c) => {
-  const data = await handleCache(
-    "proj_public",
-    CacheType.COLLECTION,
-    xata.db.projects
-      .filter({ isPublic: true })
-      .sort("started", "desc")
-      .getAll(),
-  );
+  const projects = await DB_Project.find(
+    { isPublished: true },
+    "-_id uri name category platform link linkType blurb thumbnail isFeatured isCurrent isPublished",
+  ).sort("-isCurrent -endDate");
 
-  return c.json(data);
+  return c.json(projects);
 });
 
-/**
- * Gets a list of all projects by a specific group
- */
-projects.get("/byGroup/:group", async (c) => {
-  const group = c.req.param("group");
+projects.get("/byURI/:uri", async (c) => {
+  const uri = c.req.param("uri");
 
-  const data = await handleCache(
-    `proj_${group}`,
-    CacheType.COLLECTION,
-    xata.db.projects.filter({ group, isPublic: true }).getAll(),
-  );
+  const projectDetails = await DB_Project.findOne({
+    uri: uri,
+    isPublished: true,
+  }).populate({
+    path: "skills",
+    select: "name isFeatured isPublished",
+  });
 
-  return c.json(data);
+  return c.json(projectDetails);
 });
 
-/**
- * Gets the full details of a specific project by its slug
- */
-projects.get("/bySlug/:slug", async (c) => {
-  const slug = c.req.param("slug");
-
-  const data = await handleCache(
-    slug,
-    CacheType.PROJECT,
-    xata.db.projects.filter({ slug, isPublic: true }).getFirst(),
-  );
-
-  return c.json(data);
-});
-
-/**
- * Gets a list of all projects that used a specific skill
- */
 projects.get("/bySkill/:id", async (c) => {
-  const skillID = c.req.param("id");
+  const uri = c.req.param("id");
 
-  const data = await handleCache(
-    `proj_${skillID}`,
-    CacheType.COLLECTION,
-    xata.db.projects_skills
-      .filter({ "skill.id": skillID, "project.isPublic": true })
-      .select(["project.id", "project.name", "project.group", "project.slug"])
-      .getAll(),
+  const projectDetails = await DB_Project.find(
+    { skills: uri, isPublished: true },
+    "-_id name uri category",
   );
-
-  return c.json(data);
+  return c.json(projectDetails);
 });
 
-/**
- * Gets the full index of all projects
- */
-projects.get("/fullIndex", async (c) => {
-  let projects = await xata.db.projects
-    .select(["name", "id"])
-    .sort("started", "desc")
-    .getAll();
+projects.post("admin", async (c) => {
+  const {
+    name,
+    category,
+    platform,
+    link,
+    linkType,
+    blurb,
+    details,
+    client,
+    role,
+    skills,
+    startDate,
+    endDate,
+    thumbnail,
+    isCurrent,
+    isFeatured,
+    isPublished,
+  } = await c.req.json();
 
-  console.log(projects);
-  return c.json(projects);
-});
+  const project = new DB_Project({
+    uri: createURI(name),
+    name,
+    category,
+    platform,
+    link,
+    linkType,
+    blurb,
+    details,
+    client,
+    role,
+    skills,
+    startDate,
+    endDate,
+    thumbnail,
+    isCurrent,
+    isPublished,
+    isFeatured,
+  });
 
-/**
- * Gets the CV entries for the requested projects
- * @param {string[]} ids - a string array of project IDs
- */
-projects.post("forCV", async (c) => {
-  let { ids } = await c.req.json();
-  const projects = await xata.db.projects
-    .filter({ id: { $any: ids } })
-    .select([
-      "name",
-      "role",
-      "client",
-      "cvDescription",
-      "link",
-      "started",
-      "ended",
-    ])
-    .getAll();
+  await project.save();
 
-  return c.json(projects);
+  return c.json(project);
 });
 
 export default projects;

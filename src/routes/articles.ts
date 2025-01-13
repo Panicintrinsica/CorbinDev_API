@@ -1,148 +1,74 @@
 import { Hono } from "hono";
-import { getXataClient } from "../xata.ts";
-import {
-  cacheDelete,
-  CacheType,
-  handleCache,
-} from "../services/cache.service.ts";
+import DB_Article from "../schema/article.schema.ts";
 
-const xata = getXataClient();
 const articles = new Hono();
 
-articles.post("getWithFilters", async (c) => {
-  const { size, offset, tags } = await c.req.json();
-  const queryKey = Bun.hash(JSON.stringify({ size, offset, tags }));
+// Get a single article by its date and uri
+articles.get("/", async (c) => {
+  const date = c.req.queries("date");
+  const uri = c.req.queries("uri");
 
-  const data = await handleCache(
-    queryKey.toString(),
-    CacheType.SEARCH,
-    xata.db.articles
-      .select(["title", "slug", "aboveFold", "tags", "category"])
-      .filter({
-        category: { $any: tags },
-      })
-      .sort("xata.createdAt", "desc")
-      .getPaginated({
-        pagination: {
-          size,
-          offset: Number(offset * size),
-        },
-      }),
-  );
-
-  return c.json(data);
-});
-
-articles.get("single/:slug", async (c) => {
-  const slug = c.req.param("slug");
-
-  const data = await handleCache(
-    slug,
-    CacheType.ARTICLE,
-    xata.db.articles.filter({ slug: slug }).getFirst(),
-  );
-
-  return c.json(data);
-});
-
-articles.post("search", async (c) => {
-  const { searchString } = await c.req.json();
-
-  const sanitizedString = searchString.replace(/[^a-zA-Z0-9 ]/g, "");
-
-  const results = await xata.db.articles.search(sanitizedString, {
-    target: ["title", "aboveFold", "tags", "category", "content"],
-    boosters: [
-      { valueBooster: { column: "tags", value: sanitizedString, factor: 3 } },
-    ],
-    fuzziness: 1,
-    prefix: "phrase",
+  const article = await DB_Article.findOne({
+    date: date,
+    uri: uri,
+    isPublished: true,
   });
 
-  const formattedResults = results.records
-    .filter((article) => (article.xata?.score ?? 0) >= 1) // Handle undefined score with default value
-    .map((article) => ({
-      title: article.title,
-      slug: article.slug,
-      aboveFold: article.aboveFold,
-      tags: article.tags,
-      category: article.category,
-      xata: article.xata,
-    }));
-
-  return c.json({
-    records: formattedResults,
-    totalCount: results.totalCount,
-  });
+  return c.json(article);
 });
 
-// [ADMIN] List of all articles
-articles.get("admin/list", async (c) => {
-  const size = Number(c.req.queries("size"));
-  const offset = Number(c.req.queries("offset"));
+articles.get("/list", async (c) => {
+  const articles = await DB_Article.find();
 
-  const page = await xata.db.articles
-    .select(["id", "title", "tags", "category"])
-    .sort("xata.createdAt", "desc")
-    .getPaginated({
-      pagination: { size, offset: offset * size },
+  return c.json(articles);
+});
+
+// Get the first page of articles
+articles.get("page", async (c) => {
+  const size = Number(c.req.query("size")) || 10; // Requested page size
+  const page = Number(c.req.query("page")) || 1; // Current page number, defaults to 1
+  const categories = c.req.queries("categories");
+
+  try {
+    const query: any = { isPublished: true };
+
+    if (categories && categories.length > 0) {
+      query.category = { $in: categories }; // Filter by tags if provided
+    }
+
+    // Calculate the number of documents to skip
+    const skip = (page - 1) * size;
+
+    // Fetch the articles
+    const articles = await DB_Article.find(
+      query,
+      "title date uri aboveFold category tags author createdAt updatedAt",
+    )
+      .sort({ createdAt: -1 }) // Sort descending by creation date
+      .skip(skip) // Skip the required number of documents
+      .limit(size); // Limit to the requested size
+
+    // Count total number of documents matching the query (for meta purposes)
+    const totalCount = await DB_Article.countDocuments(query);
+
+    // Calculate pagination metadata
+    const totalPages = Math.ceil(totalCount / size); // Total number of pages
+    const isFirstPage = page === 1;
+    const isLastPage = page === totalPages;
+
+    return c.json({
+      data: articles,
+      meta: {
+        size,
+        page,
+        totalPages,
+        isFirstPage,
+        isLastPage,
+      },
     });
-
-  return c.json(page);
-});
-
-articles.get("admin/list/recent", async (c) => {
-  const data = await handleCache(
-    "RecentArticles",
-    CacheType.COLLECTION,
-    xata.db.articles
-      .select(["id", "title", "tags", "category"])
-      .sort("xata.createdAt", "desc")
-      .getPaginated({ pagination: { size: 6 } }),
-  );
-
-  return c.json(data);
-});
-
-// [ADMIN] Get a single article by ID
-articles.get("admin/:id", async (c) => {
-  const articleID = c.req.param("id");
-
-  const data = await handleCache(
-    "RecentArticles",
-    CacheType.ARTICLE,
-    xata.db.articles.read(articleID),
-  );
-
-  return c.json(data);
-});
-
-// [ADMIN] Post a new article
-articles.post("admin", async (c) => {
-  cacheDelete("RecentArticles", CacheType.COLLECTION);
-
-  return c.json({
-    message: "Article Posted",
-  });
-});
-
-// [ADMIN] Update an existing article
-articles.put("admin", async (c) => {
-  return c.json({
-    message: "Article Posted",
-  });
-});
-
-// [ADMIN] Delete an article
-articles.delete("admin", async (c) => {
-  const ArticleID = "PLACEHOLDER";
-
-  cacheDelete(ArticleID, CacheType.ARTICLE);
-  cacheDelete("RecentArticles", CacheType.COLLECTION);
-
-  return c.json({
-    message: "Article Posted",
-  });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
 });
 
 export default articles;

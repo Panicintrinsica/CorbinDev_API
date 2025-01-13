@@ -1,12 +1,9 @@
 import { Hono } from "hono";
-import { getXataClient } from "../xata.ts";
 
 const details = new Hono();
-const xata = getXataClient();
 
 details.get("/", async (c) => {
-  const details = await xata.db["details"].getAll();
-  return c.json(details);
+  return c.json({});
 });
 
 details.get("/contact", (c) => {

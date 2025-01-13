@@ -1,77 +1,56 @@
 import { Hono } from "hono";
-import { getXataClient } from "../xata.ts";
-import { CacheType, handleCache } from "../services/cache.service.ts";
+import DB_Skill from "../schema/skill.schema.ts";
 
 const skills = new Hono();
 
-// Generated with CLI
-const xata = getXataClient();
-
 skills.get("/", async (c) => {
-  const data = await handleCache(
-    "public_skills",
-    CacheType.COLLECTION,
-    xata.db["skills"]
-      .select([
-        "name",
-        "learned",
-        "years",
-        "level",
-        "isPublic",
-        "isFeatured",
-        "group",
-        "notes",
-        "link",
-      ] as any)
-      .getAll(),
-  );
-
-  return c.json(data);
-});
-
-skills.get("/list", async (c) => {
-  const skills = await xata.db["skills"].select(["name"] as any).getAll();
+  const skills = await DB_Skill.find();
 
   return c.json(skills);
 });
 
-skills.get("/byID/:id", async (c) => {
+skills.get("/:id", async (c) => {
   const skillID = c.req.param("id");
-
-  const data = await handleCache(
-    skillID,
-    CacheType.SKILL,
-    xata.db["skills"].read(skillID),
-  );
-
-  return c.json(data);
+  const skill = await DB_Skill.findById(skillID);
+  return c.json(skill);
 });
 
-skills.get("/byName/:name", async (c) => {
-  const name = c.req.param("name");
-
-  const data = await handleCache(
+skills.post("/admin", async (c) => {
+  const {
     name,
-    CacheType.SKILL,
-    xata.db["skills"].filter({ name }).getFirst(),
-  );
+    acquired,
+    proficiency,
+    level,
+    logo,
+    link,
+    group,
+    notes,
+    isFeatured,
+    isPublished,
+  } = await c.req.json();
 
-  return c.json(data);
+  const skill = new DB_Skill({
+    name,
+    acquired,
+    proficiency,
+    level,
+    logo,
+    link,
+    group,
+    notes,
+    isFeatured,
+    isPublished,
+  });
+
+  await skill.save();
+
+  return c.json(skill);
 });
 
-skills.get("/byProject/:id", async (c) => {
-  const projectID = c.req.param("id");
+skills.get("admin/ids", async (c) => {
+  const skills = await DB_Skill.find().select("_id name");
 
-  const data = await handleCache(
-    `skills_project_${projectID}`,
-    CacheType.COLLECTION,
-    xata.db.projects_skills
-      .filter({ "project.id": projectID })
-      .select(["skill.id", "skill.name", "skill.isFeatured"])
-      .getAll(),
-  );
-
-  return c.json(data);
+  return c.json(skills);
 });
 
 export default skills;

@@ -1,16 +1,13 @@
-import { Hono } from 'hono';
-import {getXataClient} from "../xata.ts";
+import { Hono } from "hono";
 
-const xata = getXataClient();
 const schools = new Hono();
 
-schools.get('/', async (c) => {
-    const results = await xata.db["schools"].getAll();
-    return c.json(results);
+schools.get("/", async (c) => {
+  return c.json({});
 });
 
-schools.get('/:id', (c) => {
-    return c.json('get schools by id');
+schools.get("/:id", (c) => {
+  return c.json("get schools by id");
 });
 
 export default schools;
