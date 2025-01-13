@@ -4,15 +4,10 @@ import { cors } from "hono/cors";
 import articleRouter from "./routes/articles.ts";
 import skillsRouter from "./routes/skills.ts";
 import projectRouter from "./routes/projects.ts";
-import detailsRouter from "./routes/details.ts";
-import schoolRouter from "./routes/schools.ts";
 import contentRouter from "./routes/content.ts";
 import { isAdmin } from "./middleware/auth.ts";
-import { initCache } from "./services/cache.service.ts";
 
 const app = new Hono();
-
-initCache();
 
 app.use("/*", cors());
 
@@ -20,9 +15,7 @@ app.use("/*/admin/*", isAdmin());
 
 app.route("/articles", articleRouter);
 app.route("/skills", skillsRouter);
-app.route("/details", detailsRouter);
 app.route("/projects", projectRouter);
-app.route("/schools", schoolRouter);
 app.route("/content", contentRouter);
 
 app.get("ping", async (c) => {
