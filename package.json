@@ -17,6 +17,7 @@
     "@types/mongoose-unique-validator": "^1.0.9",
     "hono": "^4.4.2",
     "mongoose": "^8.9.4",
-    "mongoose-unique-validator": "^4.0.1"
+    "mongoose-unique-validator": "^4.0.1",
+    "validator": "^13.12.0"
   }
 }

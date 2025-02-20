@@ -12,7 +12,7 @@ const app = new Hono();
 app.use(
   "/*",
   cors({
-    origin: ["https://corbin.dev"],
+    origin: ["https://corbin.dev", "http://localhost:4200"],
     allowMethods: ["GET", "POST", "PUT", "DELETE"],
     allowHeaders: ["Content-Type", "Authorization"],
   }),
@@ -29,7 +29,7 @@ app.get("ping", async (c) => {
   return c.text("pong");
 });
 
-let port = 5250;
+let port = 32020;
 
 Bun.serve({
   fetch: app.fetch,
@@ -37,8 +37,3 @@ Bun.serve({
 });
 
 console.log(`Application is running and listening on port ${port}`);
-
-await Bun.build({
-  entrypoints: ["./index.ts"],
-  outdir: "./built",
-});

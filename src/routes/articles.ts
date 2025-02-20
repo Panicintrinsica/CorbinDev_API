@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import DB_Article from "../schema/article.schema.ts";
+import { createURI, getCurrentDate } from "../util.ts";
 
 const articles = new Hono();
 
@@ -69,6 +70,92 @@ articles.get("page", async (c) => {
   } catch (error: any) {
     return c.json({ error: error.message }, 500);
   }
+});
+
+// Search the Articles
+articles.post("/search", async (c) => {
+  const { query } = await c.req.json();
+
+  const results = await DB_Article.aggregate([
+    {
+      $search: {
+        index: "articles_index",
+        compound: {
+          should: [
+            {
+              text: {
+                query: query,
+                path: ["category"],
+                score: {
+                  constant: {
+                    value: 2,
+                  },
+                },
+              },
+            },
+            {
+              text: {
+                query: query,
+                path: ["tags"],
+                score: {
+                  constant: {
+                    value: 1.25,
+                  },
+                },
+              },
+            },
+            {
+              text: {
+                query: query,
+                path: ["title", "aboveFold", "belowFold", "category", "tags"],
+              },
+            },
+          ],
+          mustNot: [
+            {
+              equals: {
+                value: false,
+                path: "isPublished",
+              },
+            },
+          ],
+        },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        belowFold: 0,
+        score: { $meta: "searchScore" },
+      },
+    },
+  ]);
+
+  return c.json({
+    data: results,
+    meta: {},
+  });
+});
+
+articles.post("admin", async (c) => {
+  const { title, aboveFold, belowFold, category, tags, author, isPublished } =
+    await c.req.json();
+
+  const article = new DB_Article({
+    title,
+    date: getCurrentDate(),
+    uri: createURI(title),
+    aboveFold,
+    belowFold,
+    category,
+    tags,
+    author,
+    isPublished,
+  });
+
+  await article.save();
+
+  return c.json(article);
 });
 
 export default articles;
