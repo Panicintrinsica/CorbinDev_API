@@ -9,12 +9,13 @@
     "typescript": "^5.0.0"
   },
   "scripts": {
-    "start": "bun run src/index.ts",
+    "start:api": "bun run src/index.ts",
     "start:dev": "bun --watch src/index.ts",
     "build": "bun build src/index.ts --outdir ./build --target=bun"
   },
   "dependencies": {
     "@types/mongoose-unique-validator": "^1.0.9",
+    "bson": "7.2.0",
     "hono": "^4.4.2",
     "mongoose": "^8.9.4",
     "mongoose-unique-validator": "^4.0.1",

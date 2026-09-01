@@ -25,7 +25,12 @@ COPY --from=prerelease /src/app/build/index.js .
 
 WORKDIR /src/app
 
-RUN mkdir -p /src/app && chown bun:bun /src/app
+# Uploaded images live on the filesystem, not in Atlas. Mount a volume here or
+# every image uploaded is lost the next time this container is replaced.
+ENV MEDIA_DIR=/src/app/media
+RUN mkdir -p /src/app/media && chown -R bun:bun /src/app
+VOLUME ["/src/app/media"]
+
 USER bun
 
 EXPOSE 5250/tcp
