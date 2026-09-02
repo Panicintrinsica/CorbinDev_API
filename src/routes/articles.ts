@@ -141,28 +141,71 @@ articles.post("/search", async (c) => {
 
 // --- Authoring ---------------------------------------------------------------
 
-/** Every article including drafts, newest first. Cards only. */
+/** Every article including drafts, newest first. Cards only. Supports search, category filter, and pagination. */
 articles.get("/admin", async (c) => {
   const size = Math.min(Number(c.req.query("size")) || 25, 100);
   const page = Math.max(Number(c.req.query("page")) || 1, 1);
   const status = c.req.query("status");
+  const category = c.req.query("category");
+  const categories = c.req.queries("categories");
+  const search = c.req.query("search") || c.req.query("q");
+  const tag = c.req.query("tag");
+  const title = c.req.query("title");
 
   const query: Record<string, unknown> = {};
   if (status === "published") query.isPublished = true;
   if (status === "draft") query.isPublished = false;
 
-  const [data, totalCount] = await Promise.all([
-    DB_Article.find(query, `${CARD_FIELDS} isPublished`)
-      .sort({ createdAt: -1 })
-      .skip((page - 1) * size)
-      .limit(size),
-    DB_Article.countDocuments(query),
-  ]);
+  if (category && category !== "all") {
+    query.category = category;
+  } else if (categories && categories.length > 0) {
+    query.category = { $in: categories };
+  }
 
-  return c.json({
-    data,
-    meta: { size, page, totalPages: Math.ceil(totalCount / size), totalCount },
-  });
+  if (tag && tag.trim()) {
+    const escapedTag = tag.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    query.tags = { $regex: new RegExp(`^${escapedTag}$`, "i") };
+  }
+
+  if (title && title.trim()) {
+    const escapedTitle = title.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    query.title = { $regex: new RegExp(escapedTitle, "i") };
+  }
+
+  if (search && search.trim()) {
+    const escapedSearch = search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const searchRegex = new RegExp(escapedSearch, "i");
+    query.$or = [
+      { title: { $regex: searchRegex } },
+      { tags: { $regex: searchRegex } },
+    ];
+  }
+
+  try {
+    const [data, totalCount] = await Promise.all([
+      DB_Article.find(query, `${CARD_FIELDS} isPublished`)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * size)
+        .limit(size),
+      DB_Article.countDocuments(query),
+    ]);
+
+    const totalPages = Math.ceil(totalCount / size);
+
+    return c.json({
+      data,
+      meta: {
+        size,
+        page,
+        totalPages,
+        totalCount,
+        isFirstPage: page === 1,
+        isLastPage: page >= totalPages,
+      },
+    });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
 });
 
 /** One article by id, published or not, with its full body for editing. */

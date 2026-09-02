@@ -15,26 +15,66 @@ const MAX_CONTENT_BYTES = 512 * 1024;
 // --- Authoring ---------------------------------------------------------------
 
 skills.get("/admin", async (c) => {
-  const size = Math.min(Number(c.req.query("size")) || 100, 200);
+  const size = Math.min(Number(c.req.query("size")) || 25, 200);
   const page = Math.max(Number(c.req.query("page")) || 1, 1);
   const status = c.req.query("status");
+  const group = c.req.query("group") || c.req.query("category");
+  const groups = c.req.queries("groups") || c.req.queries("categories");
+  const search = c.req.query("search") || c.req.query("q");
+  const name = c.req.query("name");
 
   const query: Record<string, unknown> = {};
   if (status === "published") query.isPublished = true;
   if (status === "draft") query.isPublished = false;
 
-  const [data, totalCount] = await Promise.all([
-    DB_Skill.find(query)
-      .sort("group name")
-      .skip((page - 1) * size)
-      .limit(size),
-    DB_Skill.countDocuments(query),
-  ]);
+  if (group && group !== "all") {
+    const escapedGroup = group.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    query.group = { $regex: new RegExp(`^${escapedGroup}$`, "i") };
+  } else if (groups && groups.length > 0) {
+    query.group = { $in: groups };
+  }
 
-  return c.json({
-    data,
-    meta: { size, page, totalPages: Math.ceil(totalCount / size), totalCount },
-  });
+  if (name && name.trim()) {
+    const escapedName = name.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    query.name = { $regex: new RegExp(escapedName, "i") };
+  }
+
+  if (search && search.trim()) {
+    const escapedSearch = search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const searchRegex = new RegExp(escapedSearch, "i");
+    query.$or = [
+      { name: { $regex: searchRegex } },
+      { group: { $regex: searchRegex } },
+      { proficiency: { $regex: searchRegex } },
+      { acquired: { $regex: searchRegex } },
+    ];
+  }
+
+  try {
+    const [data, totalCount] = await Promise.all([
+      DB_Skill.find(query)
+        .sort("group name")
+        .skip((page - 1) * size)
+        .limit(size),
+      DB_Skill.countDocuments(query),
+    ]);
+
+    const totalPages = Math.ceil(totalCount / size);
+
+    return c.json({
+      data,
+      meta: {
+        size,
+        page,
+        totalPages,
+        totalCount,
+        isFirstPage: page === 1,
+        isLastPage: page >= totalPages,
+      },
+    });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
 });
 
 skills.get("/admin/ids", async (c) => {

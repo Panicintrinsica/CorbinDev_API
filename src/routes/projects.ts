@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import DB_Project from "../schema/project.schema.ts";
+import DB_Skill from "../schema/skill.schema.ts";
 import { createURI } from "../util.ts";
 import {
   BlockContentError,
@@ -64,32 +65,89 @@ projects.get("/bySkill/:id", async (c) => {
 
 // --- Authoring ---------------------------------------------------------------
 
-/** Every project including drafts, newest first. */
+/** Every project including drafts, newest first. Supports search, category/platform filtering, and pagination. */
 projects.get("/admin", async (c) => {
   const size = Math.min(Number(c.req.query("size")) || 25, 100);
   const page = Math.max(Number(c.req.query("page")) || 1, 1);
   const status = c.req.query("status");
+  const category = c.req.query("category");
+  const categories = c.req.queries("categories");
+  const platform = c.req.query("platform");
+  const search = c.req.query("search") || c.req.query("q");
+  const name = c.req.query("name");
 
   const query: Record<string, unknown> = {};
   if (status === "published") query.isPublished = true;
   if (status === "draft") query.isPublished = false;
 
-  const [data, totalCount] = await Promise.all([
-    DB_Project.find(query)
-      .populate({
-        path: "skills",
-        select: "name group isFeatured isPublished",
-      })
-      .sort("-isCurrent -endDate -createdAt")
-      .skip((page - 1) * size)
-      .limit(size),
-    DB_Project.countDocuments(query),
-  ]);
+  if (category && category !== "all") {
+    const escapedCategory = category.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    query.category = { $regex: new RegExp(`^${escapedCategory}$`, "i") };
+  } else if (categories && categories.length > 0) {
+    query.category = { $in: categories };
+  }
 
-  return c.json({
-    data,
-    meta: { size, page, totalPages: Math.ceil(totalCount / size), totalCount },
-  });
+  if (platform && platform !== "all") {
+    const escapedPlatform = platform.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    query.platform = { $regex: new RegExp(`^${escapedPlatform}$`, "i") };
+  }
+
+  if (name && name.trim()) {
+    const escapedName = name.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    query.name = { $regex: new RegExp(escapedName, "i") };
+  }
+
+  if (search && search.trim()) {
+    const escapedSearch = search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const searchRegex = new RegExp(escapedSearch, "i");
+
+    // Search matching skills by name
+    const matchingSkills = await DB_Skill.find({ name: { $regex: searchRegex } }, "_id");
+    const skillIds = matchingSkills.map((s) => s._id);
+
+    const orConditions: Array<Record<string, unknown>> = [
+      { name: { $regex: searchRegex } },
+      { blurb: { $regex: searchRegex } },
+      { client: { $regex: searchRegex } },
+      { role: { $regex: searchRegex } },
+    ];
+
+    if (skillIds.length > 0) {
+      orConditions.push({ skills: { $in: skillIds } });
+    }
+
+    query.$or = orConditions;
+  }
+
+  try {
+    const [data, totalCount] = await Promise.all([
+      DB_Project.find(query)
+        .populate({
+          path: "skills",
+          select: "name group isFeatured isPublished",
+        })
+        .sort("-isCurrent -endDate -createdAt")
+        .skip((page - 1) * size)
+        .limit(size),
+      DB_Project.countDocuments(query),
+    ]);
+
+    const totalPages = Math.ceil(totalCount / size);
+
+    return c.json({
+      data,
+      meta: {
+        size,
+        page,
+        totalPages,
+        totalCount,
+        isFirstPage: page === 1,
+        isLastPage: page >= totalPages,
+      },
+    });
+  } catch (error: any) {
+    return c.json({ error: error.message }, 500);
+  }
 });
 
 /** One project by id, published or not, with its full body for editing. */
