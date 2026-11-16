@@ -1,11 +1,13 @@
 import type { KeyObject } from "node:crypto";
 import { loadEd25519PublicKey, verifyPasetoV4Public } from "./paseto.ts";
 import { bearerFromHeader, parseClaims, validateClaims, type ClaimPolicy } from "./claims.ts";
-import { AuthError } from "./errors.ts";
+import { AuthError, isAuthError } from "./errors.ts";
 import type { AuthLogger, AuthStore, SessionValidator } from "./ports.ts";
 import { consoleAuthLogger } from "./ports.ts";
 import type { HadesAuthConfig } from "./config.ts";
 import type { AuthContext, HadesAccessClaims, Principal, RoleDefinition } from "./types.ts";
+import { placeholderDisplayName, type Account } from "./account.ts";
+import type { HostEvent, HostEventHandler } from "./events.ts";
 import { permits, permitsAll, permitsAny, resolvePermissions } from "./authorize.ts";
 import { TtlCache } from "./cache.ts";
 
@@ -23,6 +25,7 @@ import { TtlCache } from "./cache.ts";
  *  4. Local revocation watermark (webhook-driven) — fails closed.
  *  5. Hades `/internal/validate-session` — fails closed unless configured otherwise.
  *  6. Local principal: provision on first sight, reject if locally disabled.
+ *  6b. Local account (display name, level): provision on first sight.
  *  7. Permission resolution.
  *
  * 4 runs before 5 on purpose: it is a local read and cheap, and a webhook we have
@@ -38,6 +41,7 @@ export class AuthEngine {
     private readonly store: AuthStore,
     private readonly sessionValidator: SessionValidator,
     private readonly logger: AuthLogger = consoleAuthLogger,
+    private readonly eventHandler?: HostEventHandler,
   ) {
     this.publicKey = loadEd25519PublicKey(config.pasetoPublicKey);
     this.claimPolicy = {
@@ -91,13 +95,15 @@ export class AuthEngine {
       principal = await this.provision(claims);
     }
 
+    const account = await this.loadAccount(claims);
+
     // Presence is best-effort. A write failure here must never fail the request.
     void this.store
       .touchLastSeen(principal.userId, now)
       .catch((error) => this.logger.debug("touchLastSeen failed", { error: String(error) }));
 
     const permissions = await this.resolveFor(principal);
-    return buildContext(claims, principal, permissions, sessionChecked);
+    return buildContext(claims, principal, account, permissions, sessionChecked);
   }
 
   /** Step 4's read, isolated so its failure mode is explicit. */
@@ -142,6 +148,56 @@ export class AuthEngine {
     return this.store.provisionPrincipal({ userId: claims.sub, roles });
   }
 
+  /**
+   * Step 6b. Every authenticated person has an account here, created on first sight with
+   * a placeholder name they are expected to replace. A locally disabled account is
+   * refused just as a disabled principal is.
+   */
+  private async loadAccount(claims: HadesAccessClaims): Promise<Account> {
+    try {
+      const existing = await this.store.getAccountByHadesId(claims.sub);
+      if (existing) {
+        if (existing.status === "disabled") throw new AuthError("principal_disabled");
+        return existing;
+      }
+      if (!this.config.autoProvision) throw new AuthError("principal_disabled");
+
+      // The placeholder must itself be unique, so on the rare collision try again with
+      // a random suffix.
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await this.store.provisionAccount({
+            hadesUserId: claims.sub,
+            displayName: placeholderDisplayName(claims.sub, attempt, this.config.displayNamePrefix),
+            level: claims.lvl,
+          });
+        } catch (error) {
+          const taken = isAuthError(error) && error.code === "display_name_taken";
+          if (!taken || attempt >= 5) throw error;
+        }
+      }
+    } catch (cause) {
+      if (isAuthError(cause)) throw cause;
+      // Fails closed, like the principal read: without the account we cannot say who
+      // this is or whether they are disabled.
+      this.logger.error("account lookup failed", { error: String(cause) });
+      throw new AuthError("store_unavailable", undefined, cause);
+    }
+  }
+
+  /**
+   * Hands an event to the host application. A throwing handler is logged and swallowed:
+   * the host's bookkeeping must not turn a security event into a failed delivery.
+   */
+  async emit(event: HostEvent): Promise<void> {
+    if (!this.eventHandler) return;
+    try {
+      await this.eventHandler(event);
+    } catch (error) {
+      this.logger.error("host event handler failed", { type: event.type, error: String(error) });
+    }
+  }
+
   private async resolveFor(principal: Principal): Promise<Set<string>> {
     const key = principal.roles.slice().sort().join("|");
     let definitions = this.roleCache.get(key);
@@ -150,6 +206,11 @@ export class AuthEngine {
       this.roleCache.set(key, definitions, this.config.roleCacheTtlSeconds);
     }
     return resolvePermissions(principal, definitions);
+  }
+
+  /** Drops any cached session verdict for a user, e.g. after their account is deleted. */
+  invalidateSessions(userId: string): void {
+    this.sessionValidator.invalidateUser?.(userId);
   }
 
   /** Drops cached role definitions. Call after editing a role. */
@@ -161,12 +222,14 @@ export class AuthEngine {
 function buildContext(
   claims: HadesAccessClaims,
   principal: Principal,
+  account: Account,
   permissions: Set<string>,
   sessionChecked: boolean,
 ): AuthContext {
   return {
     claims,
     principal,
+    account,
     permissions,
     sessionChecked,
     has: (permission) => permits(permissions, permission),

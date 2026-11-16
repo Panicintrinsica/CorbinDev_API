@@ -109,3 +109,26 @@ export function verifyPasetoV4Public(
   const decoder = new TextDecoder();
   return { payload: decoder.decode(message), footer: decoder.decode(footer) };
 }
+
+/**
+ * The claims of a token this process has NOT verified. Only for a token Hades has just
+ * handed back over TLS to a request this process made (the register response), where
+ * the point is to learn who was created, not to authenticate anyone. Never use it to
+ * decide what a caller may do.
+ */
+export function unverifiedPayload(token: string): Record<string, unknown> | null {
+  if (!token.startsWith(HEADER)) return null;
+  const rest = token.slice(HEADER.length);
+  const dot = rest.indexOf(".");
+  const bodyPart = dot === -1 ? rest : rest.slice(0, dot);
+  try {
+    const decoded = b64uDecode(bodyPart);
+    if (decoded.length <= SIGNATURE_BYTES) return null;
+    const parsed: unknown = JSON.parse(
+      new TextDecoder().decode(decoded.subarray(0, decoded.length - SIGNATURE_BYTES)),
+    );
+    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}

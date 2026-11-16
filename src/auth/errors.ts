@@ -18,6 +18,8 @@ export type AuthErrorCode =
   | "validator_unavailable" // could not reach Hades and we fail closed
   | "principal_disabled" // locally disabled in THIS api, independent of Hades
   | "forbidden" // authenticated, but lacks the permission
+  | "display_name_required" // authenticated, but has not chosen a display name yet
+  | "display_name_taken" // another account already uses that display name
   | "store_unavailable"; // could not read local AuthZ state; fail closed
 
 export class AuthError extends Error {
@@ -38,6 +40,10 @@ function defaultMessage(code: AuthErrorCode): string {
     case "forbidden":
     case "principal_disabled":
       return "Forbidden";
+    case "display_name_required":
+      return "Choose a display name first";
+    case "display_name_taken":
+      return "That display name is already taken";
     case "validator_unavailable":
     case "store_unavailable":
       return "Authorization temporarily unavailable";
@@ -46,11 +52,14 @@ function defaultMessage(code: AuthErrorCode): string {
   }
 }
 
-export function statusForAuthError(code: AuthErrorCode): 401 | 403 | 503 {
+export function statusForAuthError(code: AuthErrorCode): 401 | 403 | 409 | 503 {
   switch (code) {
     case "forbidden":
     case "principal_disabled":
+    case "display_name_required":
       return 403;
+    case "display_name_taken":
+      return 409;
     case "validator_unavailable":
     case "store_unavailable":
       return 503;

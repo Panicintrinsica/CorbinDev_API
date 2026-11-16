@@ -36,7 +36,8 @@ export class HadesSessionValidator implements SessionValidator {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Internal-Key": this.config.internalApiKey ?? "",
+        "X-Client-ID": this.config.clientId ?? "",
+        "Authorization": `Bearer ${this.config.clientApiKey ?? ""}`,
       },
       body: JSON.stringify({
         jti: input.jti,

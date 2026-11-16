@@ -1,7 +1,15 @@
 import type { Connection } from "mongoose";
 import type { AuthStore } from "../ports.ts";
 import type { Principal, RoleDefinition } from "../types.ts";
-import { createAuthModels, type AuthModels, type PrincipalDoc, type RoleDoc } from "./schemas.ts";
+import { AuthError } from "../errors.ts";
+import { displayNameKey, type Account, type VerificationTier } from "../account.ts";
+import {
+  createAuthModels,
+  type AccountDoc,
+  type AuthModels,
+  type PrincipalDoc,
+  type RoleDoc,
+} from "./schemas.ts";
 
 /**
  * MongoDB implementation of the AuthStore port. This file and schemas.ts are the
@@ -82,6 +90,7 @@ export class MongoAuthStore implements AuthStore {
 
   async touchLastSeen(userId: string, at: Date): Promise<void> {
     await this.models.Principal.updateOne({ _id: userId }, { $set: { lastSeenAt: at } }).exec();
+    await this.models.Account.updateOne({ hadesUserId: userId }, { $set: { lastSeenAt: at } }).exec();
   }
 
   async recordWebhookEvent(event: {
@@ -103,6 +112,111 @@ export class MongoAuthStore implements AuthStore {
       if (isDuplicateKey(error)) return false; // Already delivered. Not an error.
       throw error;
     }
+  }
+
+  async forgetWebhookEvent(eventId: string): Promise<void> {
+    await this.models.WebhookEvent.deleteOne({ _id: eventId }).exec();
+  }
+
+  // --- Realm accounts ----------------------------------------------------------
+
+  async getAccountByHadesId(hadesUserId: string): Promise<Account | null> {
+    const doc = await this.models.Account.findOne({ hadesUserId }).lean<AccountDoc>().exec();
+    return doc ? toAccount(doc) : null;
+  }
+
+  async getAccount(accountId: string): Promise<Account | null> {
+    const doc = await this.models.Account.findById(accountId).lean<AccountDoc>().exec();
+    return doc ? toAccount(doc) : null;
+  }
+
+  async provisionAccount(input: {
+    hadesUserId: string;
+    displayName: string;
+    level: number;
+  }): Promise<Account> {
+    const existing = await this.getAccountByHadesId(input.hadesUserId);
+    if (existing) return existing;
+
+    const now = new Date();
+    try {
+      const created = await this.models.Account.create({
+        _id: crypto.randomUUID(),
+        hadesUserId: input.hadesUserId,
+        displayName: input.displayName,
+        displayNameKey: displayNameKey(input.displayName),
+        displayNameSet: false,
+        accountLevel: input.level,
+        verificationTier: "none",
+        verificationUrl: null,
+        status: "active",
+        lastSeenAt: null,
+        extra: {},
+        createdAt: now,
+        updatedAt: now,
+      });
+      return toAccount(created.toObject() as AccountDoc);
+    } catch (error) {
+      if (!isDuplicateKey(error)) throw error;
+      // Either someone else holds the placeholder name, or a concurrent request for
+      // this same user won the race on `hadesUserId`. Only the latter is not an error.
+      const winner = await this.getAccountByHadesId(input.hadesUserId);
+      if (winner) return winner;
+      throw new AuthError("display_name_taken", undefined, error);
+    }
+  }
+
+  async deleteAccountByHadesId(hadesUserId: string): Promise<boolean> {
+    const result = await this.models.Account.deleteOne({ hadesUserId }).exec();
+    return result.deletedCount === 1;
+  }
+
+  async setAccountVerification(
+    hadesUserId: string,
+    tier: VerificationTier,
+    url: string | null,
+  ): Promise<void> {
+    await this.models.Account.updateOne(
+      { hadesUserId },
+      { $set: { verificationTier: tier, verificationUrl: url ?? null } },
+    ).exec();
+  }
+
+  async updateAccountLevel(accountId: string, level: number): Promise<void> {
+    await this.models.Account.updateOne({ _id: accountId }, { $set: { accountLevel: level } }).exec();
+  }
+
+  async updateDisplayName(accountId: string, displayName: string): Promise<void> {
+    try {
+      // The unique index decides a race between two people picking the same name.
+      await this.models.Account.updateOne(
+        { _id: accountId },
+        { $set: { displayName, displayNameKey: displayNameKey(displayName), displayNameSet: true } },
+      ).exec();
+    } catch (error) {
+      if (isDuplicateKey(error)) throw new AuthError("display_name_taken", undefined, error);
+      throw error;
+    }
+  }
+
+  async getAccountByDisplayName(displayName: string): Promise<Account | null> {
+    const doc = await this.models.Account.findOne({ displayNameKey: displayNameKey(displayName) })
+      .lean<AccountDoc>()
+      .exec();
+    return doc ? toAccount(doc) : null;
+  }
+
+  async displayNameTaken(displayName: string): Promise<boolean> {
+    return (await this.getAccountByDisplayName(displayName)) !== null;
+  }
+
+  async listAccounts(): Promise<Account[]> {
+    const docs = await this.models.Account.find()
+      .sort({ createdAt: -1 })
+      .limit(500)
+      .lean<AccountDoc[]>()
+      .exec();
+    return docs.map(toAccount);
   }
 
   // --- Local administration, beyond the port ---------------------------------
@@ -259,6 +373,23 @@ function toPrincipal(doc: PrincipalDoc): Principal {
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
     lastSeenAt: doc.lastSeenAt,
+  };
+}
+
+function toAccount(doc: AccountDoc): Account {
+  return {
+    accountId: doc._id,
+    hadesUserId: doc.hadesUserId,
+    displayName: doc.displayName,
+    displayNameSet: doc.displayNameSet ?? false,
+    accountLevel: doc.accountLevel ?? 0,
+    verificationTier: doc.verificationTier ?? "none",
+    verificationUrl: doc.verificationUrl ?? null,
+    status: doc.status ?? "active",
+    createdAt: doc.createdAt,
+    updatedAt: doc.updatedAt,
+    lastSeenAt: doc.lastSeenAt ?? null,
+    extra: doc.extra ?? {},
   };
 }
 

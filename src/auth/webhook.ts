@@ -1,5 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { AuthLogger, AuthStore } from "./ports.ts";
+import { isVerificationTier } from "./account.ts";
+import type { HostEvent } from "./events.ts";
 
 /**
  * Receiver for Hades security webhooks (docs/agent/api/webhooks.md).
@@ -15,7 +17,13 @@ import type { AuthLogger, AuthStore } from "./ports.ts";
  * PORTABILITY: `node:crypto` for HMAC only. Everything else is plain data.
  */
 
-export type HadesEventType = "user_banned" | "user_unbanned" | "sessions_revoked";
+export type HadesEventType =
+  | "user_banned"
+  | "user_unbanned"
+  | "sessions_revoked"
+  | "account_level_changed"
+  | "verification_changed"
+  | "account_deleted";
 
 export interface HadesSecurityEvent {
   id: string;
@@ -23,6 +31,8 @@ export interface HadesSecurityEvent {
   occurred_at: string;
   user_id: string;
   actor_id?: string;
+  /** Event-specific payload, e.g. `{ account_level: 10 }`. Absent on the original events. */
+  data?: Record<string, unknown>;
 }
 
 export interface WebhookHeaders {
@@ -94,11 +104,16 @@ export function constantTimeEquals(a: string, b: string): boolean {
 /**
  * Applies a verified event to local state. Idempotent by event id.
  * Returns false when the event was a duplicate and nothing was applied.
+ *
+ * `emit` tells the host about events only it can act on. If applying throws, the event
+ * id is forgotten again before the error propagates, so the retry Hades sends in
+ * response to our 5xx is applied instead of being acknowledged as a duplicate.
  */
 export async function applySecurityEvent(
   event: HadesSecurityEvent,
   store: AuthStore,
   logger: AuthLogger,
+  emit: (event: HostEvent) => Promise<void> = async () => {},
 ): Promise<boolean> {
   const occurredAt = new Date(event.occurred_at);
   const at = Number.isNaN(occurredAt.getTime()) ? new Date() : occurredAt;
@@ -114,6 +129,29 @@ export async function applySecurityEvent(
     return false;
   }
 
+  try {
+    await applyNew(event, at, store, logger, emit);
+  } catch (error) {
+    await store
+      .forgetWebhookEvent(event.id)
+      .catch((cause) =>
+        logger.error("could not release a failed webhook event for retry", {
+          eventId: event.id,
+          error: String(cause),
+        }),
+      );
+    throw error;
+  }
+  return true;
+}
+
+async function applyNew(
+  event: HadesSecurityEvent,
+  at: Date,
+  store: AuthStore,
+  logger: AuthLogger,
+  emit: (event: HostEvent) => Promise<void>,
+): Promise<void> {
   switch (event.type) {
     case "user_banned":
       // Hades revoked every session. Mirror it locally so we stop honouring
@@ -129,8 +167,56 @@ export async function applySecurityEvent(
       // again. The watermark deliberately stays where it is.
       await store.setStatus(event.user_id, "active");
       break;
+    case "account_level_changed": {
+      const level = event.data?.account_level;
+      if (typeof level !== "number" || !Number.isInteger(level) || level < 0) {
+        logger.warn("account_level_changed without a usable account_level", { eventId: event.id });
+        break;
+      }
+      const account = await store.getAccountByHadesId(event.user_id);
+      // No local account yet: provisioning reads the level from the token instead.
+      if (!account) break;
+      await store.updateAccountLevel(account.accountId, level);
+      await emit({
+        type: "account_level_changed",
+        hadesUserId: event.user_id,
+        accountId: account.accountId,
+        level,
+      });
+      break;
+    }
+    case "verification_changed": {
+      const tier = event.data?.tier;
+      if (!isVerificationTier(tier)) {
+        logger.warn("verification_changed with a bad tier", { eventId: event.id });
+        break;
+      }
+      const url = typeof event.data?.url === "string" ? event.data.url : null;
+      await store.setAccountVerification(event.user_id, tier, url);
+      const account = await store.getAccountByHadesId(event.user_id);
+      if (account) {
+        await emit({
+          type: "verification_changed",
+          hadesUserId: event.user_id,
+          accountId: account.accountId,
+          tier,
+        });
+      }
+      break;
+    }
+    case "account_deleted": {
+      // Host first, while the account id is still resolvable.
+      const account = await store.getAccountByHadesId(event.user_id);
+      await emit({
+        type: "account_deleted",
+        hadesUserId: event.user_id,
+        accountId: account?.accountId ?? null,
+      });
+      await store.deleteAccountByHadesId(event.user_id);
+      await store.deletePrincipal(event.user_id);
+      break;
+    }
     default:
       logger.warn("unhandled security event type", { type: event.type });
   }
-  return true;
 }

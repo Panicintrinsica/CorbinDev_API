@@ -3,6 +3,7 @@ import type { AuthLogger, AuthStore } from "../ports.ts";
 import type { HadesAuthConfig } from "../config.ts";
 import { applySecurityEvent, verifyWebhook } from "../webhook.ts";
 import type { HadesSessionValidator } from "../session.ts";
+import type { HostEvent } from "../events.ts";
 
 /**
  * Receiver for Hades security webhooks. Mount at the path registered with
@@ -17,6 +18,8 @@ export function createWebhookRouter(deps: {
   logger: AuthLogger;
   /** Optional: lets a delivery drop any cached "session is live" verdict at once. */
   sessionValidator?: Pick<HadesSessionValidator, "invalidateUser">;
+  /** Tells the host about events only it can act on (see events.ts). */
+  emit?: (event: HostEvent) => Promise<void>;
 }) {
   const router = new Hono();
 
@@ -42,7 +45,12 @@ export function createWebhookRouter(deps: {
     }
 
     try {
-      const applied = await applySecurityEvent(verdict.event, deps.store, deps.logger);
+      const applied = await applySecurityEvent(
+        verdict.event,
+        deps.store,
+        deps.logger,
+        deps.emit,
+      );
       if (applied) deps.sessionValidator?.invalidateUser(verdict.event.user_id);
     } catch (error) {
       // Answer 5xx so the event is retried — dropping it would leave a banned user

@@ -1,3 +1,5 @@
+import type { Account } from "./account.ts";
+
 /**
  * Shared shapes. Nothing in here imports a framework or a driver.
  */
@@ -22,6 +24,10 @@ export interface HadesAccessClaims {
   cid: string;
   /** Caller-chosen device/session scope. Never a trust boundary on its own. */
   did: string;
+  /** Hades account level (`lvl`). 0 when the token predates the claim. */
+  lvl: number;
+  /** Whether Hades has verified the account's email (`ev`). */
+  ev: boolean;
   iat: Date;
   exp: Date;
   /** Anything else Hades adds later, kept so nothing is silently dropped. */
@@ -64,6 +70,8 @@ export interface RoleDefinition {
 export interface AuthContext {
   claims: HadesAccessClaims;
   principal: Principal;
+  /** This site's account for the user: display name, level, verification. */
+  account: Account;
   /** Fully resolved permission set: roles' ∪ direct, minus denied. */
   permissions: ReadonlySet<string>;
   /** True when the session was confirmed live with Hades on this request. */

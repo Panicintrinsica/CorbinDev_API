@@ -14,7 +14,7 @@ const config = loadAuthConfig(
   {
     hadesBaseUrl: "https://auth.impetusstudios.com",
     pasetoPublicKey: "00".repeat(32),
-    internalApiKey: "internal",
+    clientApiKey: "client-key",
     clientId: "client-1",
     realmId: "realm-1",
   },
@@ -39,16 +39,22 @@ interface Captured {
 const realFetch = globalThis.fetch;
 let captured: Captured | undefined;
 
-function stubHades(status = 200, body = '{"ok":true}', contentType = "application/json") {
+function stubHades(
+  status = 200,
+  body = '{"ok":true}',
+  contentType = "application/json",
+  extraHeaders: Record<string, string> = {},
+) {
   captured = undefined;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     captured = {
       url: String(input),
       method: init?.method ?? "GET",
       headers: (init?.headers ?? {}) as Record<string, string>,
-      body: init?.body as string | undefined,
+      // The gateway forwards bytes; tests read them as text.
+      body: init?.body ? new TextDecoder().decode(init.body as Uint8Array) : undefined,
     };
-    return new Response(body, { status, headers: { "Content-Type": contentType } });
+    return new Response(body, { status, headers: { "Content-Type": contentType, ...extraHeaders } });
   }) as unknown as typeof fetch;
 }
 
@@ -203,9 +209,165 @@ describe("hades gateway", () => {
 
   test("refuses to mount without a client and realm", () => {
     const bare = loadAuthConfig(
-      { pasetoPublicKey: "00".repeat(32), internalApiKey: "k", clientId: undefined, realmId: undefined },
+      { pasetoPublicKey: "00".repeat(32), sessionValidation: "off", clientId: undefined, realmId: undefined },
       {},
     );
     expect(() => createHadesProxyRouter(bare, silent)).toThrow(/HADES_CLIENT_ID/);
+  });
+
+  // --- Hades routes added since the gateway was first written ------------------
+
+  test("forwards passwordless passkey sign-in as a context-bound route", async () => {
+    for (const path of ["/mfa/webauthn/login/start", "/mfa/webauthn/login/finish"]) {
+      stubHades();
+      const res = await app().request(path, { method: "POST", body: "{}" });
+      expect(res.status).toBe(200);
+      expect(captured!.url).toBe(`https://auth.impetusstudios.com${path}`);
+      expect(captured!.headers["X-Client-ID"]).toBe("client-1");
+      expect(captured!.headers["X-Realm-ID"]).toBe("realm-1");
+      expect(captured!.headers["Authorization"]).toBeUndefined();
+    }
+  });
+
+  test("self-verification carries both the client id and the bearer", async () => {
+    stubHades();
+    await app().request("/user/verification/self", {
+      method: "POST",
+      headers: { Authorization: "Bearer t" },
+      body: JSON.stringify({ url: "https://example.com" }),
+    });
+    expect(captured!.url).toBe("https://auth.impetusstudios.com/user/verification/self");
+    expect(captured!.headers["X-Client-ID"]).toBe("client-1");
+    expect(captured!.headers["Authorization"]).toBe("Bearer t");
+  });
+
+  test("renames a passkey, validating the credential id", async () => {
+    stubHades();
+    const ok = await app().request("/mfa/passkeys/abc_123-XYZ", {
+      method: "PUT",
+      headers: { Authorization: "Bearer t" },
+      body: JSON.stringify({ name: "Laptop" }),
+    });
+    expect(ok.status).toBe(200);
+    expect(captured!.method).toBe("PUT");
+    expect(captured!.url).toBe("https://auth.impetusstudios.com/mfa/passkeys/abc_123-XYZ");
+    expect(captured!.headers["Authorization"]).toBe("Bearer t");
+
+    stubHades();
+    const bad = await app().request("/mfa/passkeys/..%2Fadmin", { method: "PUT", body: "{}" });
+    expect(bad.status).toBe(400);
+    expect(captured).toBeUndefined();
+  });
+
+  test("a DELETE /user/account body survives the trip", async () => {
+    stubHades();
+    await app().request("/user/account", {
+      method: "DELETE",
+      headers: { Authorization: "Bearer t", "Content-Type": "application/json" },
+      body: JSON.stringify({ password: "pw" }),
+    });
+    expect(captured!.method).toBe("DELETE");
+    expect(captured!.body).toBe('{"password":"pw"}');
+  });
+
+  // --- Caller address, so Hades limits by person and not by this gateway --------
+
+  function appWith(trustedProxies: string[], peer: string | undefined) {
+    const cfg = loadAuthConfig(
+      {
+        pasetoPublicKey: "00".repeat(32),
+        clientApiKey: "k",
+        clientId: "client-1",
+        realmId: "realm-1",
+        trustedProxies,
+      },
+      {},
+    );
+    const server = new Hono();
+    server.route("/", createHadesProxyRouter(cfg, silent, { peerAddress: () => peer }));
+    return server;
+  }
+
+  test("forwards the socket address when there is no proxy list", async () => {
+    stubHades();
+    await appWith([], "203.0.113.9").request("/auth/login", {
+      method: "POST",
+      // Believed from nobody: the peer is not a trusted proxy.
+      headers: { "X-Forwarded-For": "1.2.3.4" },
+      body: "{}",
+    });
+    expect(captured!.headers["X-Forwarded-For"]).toBe("203.0.113.9");
+  });
+
+  test("believes X-Forwarded-For only from a trusted proxy, and only its own hop", async () => {
+    stubHades();
+    await appWith(["10.0.0.0/8"], "10.0.0.5").request("/auth/login", {
+      method: "POST",
+      headers: { "X-Forwarded-For": "9.9.9.9, 198.51.100.7" },
+      body: "{}",
+    });
+    expect(captured!.headers["X-Forwarded-For"]).toBe("198.51.100.7");
+  });
+
+  test("sends no caller address when the socket address is unknown", async () => {
+    stubHades();
+    await app().request("/auth/login", {
+      method: "POST",
+      headers: { "X-Forwarded-For": "1.2.3.4" },
+      body: "{}",
+    });
+    expect(captured!.headers["X-Forwarded-For"]).toBeUndefined();
+  });
+
+  // --- Bounds and what comes back ----------------------------------------------
+
+  test("refuses a body over the forwarding limit without calling Hades", async () => {
+    stubHades();
+    const res = await app().request("/auth/login", {
+      method: "POST",
+      body: "x".repeat(1024 * 1024 + 1),
+    });
+    expect(res.status).toBe(413);
+    expect(captured).toBeUndefined();
+  });
+
+  test("lets a client see how long to wait after a 429", async () => {
+    stubHades(429, '{"error":"Too many requests"}', "application/json", { "Retry-After": "42" });
+    const res = await app().request("/auth/login", { method: "POST", body: "{}" });
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("42");
+  });
+
+  test("puts a deadline on the call to Hades", async () => {
+    // The real deadline is 15s; assert only that a signal is attached.
+    let signal: AbortSignal | undefined;
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      signal = init?.signal ?? undefined;
+      return new Response("{}");
+    }) as unknown as typeof fetch;
+    await app().request("/auth/login", { method: "POST", body: "{}" });
+    expect(signal).toBeDefined();
+  });
+
+  // The calls CorbinDev_Frontend makes, exactly as its auth.service.ts makes them.
+  test("serves the frontend sign-in, MFA, refresh and sign-out calls", async () => {
+    const calls: Array<[string, unknown, Record<string, string>]> = [
+      ["/auth/login", { identity: "me@corbin.dev", password: "pw" }, { "X-Device-ID": "dev" }],
+      ["/mfa/verify/totp", { mfa_token: "m", code: "123456" }, { "X-Device-ID": "dev" }],
+      ["/auth/refresh", { refresh_token: "r" }, { "X-Device-ID": "dev" }],
+      ["/auth/logout", { refresh_token: "r" }, {}],
+    ];
+    for (const [path, body, headers] of calls) {
+      stubHades(200, '{"access_token":"a","refresh_token":"r","expires_in":900}');
+      const res = await app().request(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify(body),
+      });
+      expect(res.status).toBe(200);
+      expect(captured!.url).toBe(`https://auth.impetusstudios.com${path}`);
+      expect(JSON.parse(captured!.body!)).toEqual(body);
+      expect((await res.json()).access_token).toBe("a");
+    }
   });
 });

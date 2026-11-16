@@ -4,8 +4,8 @@ import { generateKeyPairSync, sign as cryptoSign } from "node:crypto";
 
 import { AuthEngine } from "../auth/engine.ts";
 import { loadAuthConfig, type HadesAuthConfig } from "../auth/config.ts";
-import type { AuthStore, SessionValidator } from "../auth/ports.ts";
-import type { Principal, RoleDefinition } from "../auth/types.ts";
+import type { SessionValidator } from "../auth/ports.ts";
+import { InMemoryAuthStore } from "../auth/memory/store.ts";
 import { createAuthMiddleware, getAuth, type AuthEnv } from "../auth/hono/middleware.ts";
 
 /**
@@ -64,51 +64,7 @@ function mint(overrides: Record<string, unknown> = {}) {
 
 // --- in-memory ports -------------------------------------------------------------
 
-class MemoryStore implements AuthStore {
-  principals = new Map<string, Principal>();
-  roles = new Map<string, RoleDefinition>();
-  events = new Set<string>();
-  failReads = false;
-
-  async getPrincipal(userId: string) {
-    if (this.failReads) throw new Error("mongo is down");
-    return this.principals.get(userId) ?? null;
-  }
-  async provisionPrincipal(input: { userId: string; roles: string[] }) {
-    const now = new Date();
-    const principal: Principal = {
-      userId: input.userId,
-      roles: input.roles,
-      directPermissions: [],
-      deniedPermissions: [],
-      status: "active",
-      createdAt: now,
-      updatedAt: now,
-    };
-    this.principals.set(input.userId, principal);
-    return principal;
-  }
-  async getRoles(names: string[]) {
-    return names.map((n) => this.roles.get(n)).filter((r): r is RoleDefinition => !!r);
-  }
-  async getDefaultRoles() {
-    return [...this.roles.values()].filter((r) => r.isDefault);
-  }
-  async revokeBefore(userId: string, at: Date) {
-    const existing = this.principals.get(userId);
-    if (existing) existing.revokedBefore = at;
-  }
-  async setStatus(userId: string, status: Principal["status"]) {
-    const existing = this.principals.get(userId);
-    if (existing) existing.status = status;
-  }
-  async touchLastSeen() {}
-  async recordWebhookEvent(event: { eventId: string }) {
-    if (this.events.has(event.eventId)) return false;
-    this.events.add(event.eventId);
-    return true;
-  }
-}
+class MemoryStore extends InMemoryAuthStore {}
 
 class FakeValidator implements SessionValidator {
   live = true;
@@ -126,7 +82,8 @@ function config(overrides: Partial<HadesAuthConfig> = {}): HadesAuthConfig {
     {
       hadesBaseUrl: "http://hades.test",
       pasetoPublicKey: PUBLIC_KEY_HEX,
-      internalApiKey: "internal",
+      clientId: "client-1",
+      clientApiKey: "client-key",
       allowedRealms: ["realm-1"],
       allowedClients: ["client-1"],
       ...overrides,

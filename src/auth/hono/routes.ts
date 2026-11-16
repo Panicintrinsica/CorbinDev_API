@@ -1,7 +1,15 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { AuthEngine } from "../engine.ts";
 import type { MongoAuthStore } from "../mongo/store.ts";
-import { createAuthMiddleware, getAuth, type AuthEnv } from "./middleware.ts";
+import type { AuthLogger } from "../ports.ts";
+import { isAuthError } from "../errors.ts";
+import {
+  DEFAULT_DISPLAY_NAME_RULES,
+  normaliseDisplayName,
+  toAccountResponseWire,
+} from "../account.ts";
+import { AUTH_CONTRACT_VERSION, type AuthMetaWire } from "../contract.ts";
+import { authErrorResponse, createAuthMiddleware, getAuth, type AuthEnv } from "./middleware.ts";
 
 /**
  * Self-service and AuthZ-administration routes for this API.
@@ -29,9 +37,158 @@ export const AUTH_ADMIN_PERMISSIONS = {
   writeRoles: "auth:roles:write",
 } as const;
 
-export function createAuthRouter(engine: AuthEngine, store: MongoAuthStore) {
+/** Longest the gateway waits on Hades when deleting an account on the caller's behalf. */
+const DELETE_ACCOUNT_MIN_TIMEOUT_MS = 5000;
+
+/** `{ error, field }` is Charon's `ErrorBody`, which `hades-ng` reads. */
+function fieldError(c: Context, status: 409 | 422, error: string) {
+  return c.json({ error, field: "display_name" }, status);
+}
+
+/**
+ * A person renames themselves. Identity (username, email, password) belongs to Hades
+ * and is changed there; this is only the name shown on this site.
+ */
+async function setDisplayName(c: Context<AuthEnv>, store: MongoAuthStore) {
+  const auth = getAuth(c);
+  const body = (await c.req.json().catch(() => ({}))) as { display_name?: unknown };
+  const rules = DEFAULT_DISPLAY_NAME_RULES;
+  const name =
+    typeof body.display_name === "string" ? normaliseDisplayName(body.display_name, rules) : null;
+  if (!name) {
+    return fieldError(c, 422, `Display name must be ${rules.min} to ${rules.max} characters.`);
+  }
+  try {
+    await store.updateDisplayName(auth.account.accountId, name);
+  } catch (error) {
+    if (isAuthError(error) && error.code === "display_name_taken") {
+      return fieldError(c, 409, "That display name is already taken.");
+    }
+    return authErrorResponse(c, error);
+  }
+  const updated = await store.getAccount(auth.account.accountId);
+  if (!updated) return c.json({ error: "Account not found" }, 404);
+  return c.json(toAccountResponseWire(updated, auth.principal.roles, [...auth.permissions].sort()));
+}
+
+/**
+ * Account self-service. Mount at `/account`: `GET /me`, `PUT /me/display-name`.
+ * The wire shape is Charon's published contract (snake_case), which `hades-ng` reads.
+ */
+export function createAccountRouter(engine: AuthEngine, store: MongoAuthStore) {
   const mw = createAuthMiddleware(engine);
   const router = new Hono<AuthEnv>();
+
+  router.get("/me", mw.requireAuth(), (c) => {
+    const auth = getAuth(c);
+    return c.json(
+      toAccountResponseWire(auth.account, auth.principal.roles, [...auth.permissions].sort()),
+    );
+  });
+
+  router.put("/me/display-name", mw.requireAuth(), (c) => setDisplayName(c, store));
+
+  return router;
+}
+
+export function createAuthRouter(
+  engine: AuthEngine,
+  store: MongoAuthStore,
+  deps: { logger: AuthLogger } = { logger: { debug() {}, warn() {}, error() {} } },
+) {
+  const mw = createAuthMiddleware(engine);
+  const router = new Hono<AuthEnv>();
+
+  /**
+   * Public: what this API offers, so a client can shape its sign-in and sign-up screens.
+   * Charon's `AuthMeta`; `contract_version` is what `hades-ng` checks for compatibility.
+   */
+  router.get("/meta", (c) => {
+    const rules = DEFAULT_DISPLAY_NAME_RULES;
+    const meta: AuthMetaWire = {
+      contract_version: AUTH_CONTRACT_VERSION,
+      domain_name: engine.config.domainName,
+      social_providers: engine.config.socialProviders,
+      features: { register: true, passkeys: true, passwordless: true, delete_account: true },
+      display_name_rules: { min: rules.min, max: rules.max },
+    };
+    return c.json(meta);
+  });
+
+  /** The same rename as `PUT /account/me/display-name`, under the `/auth` prefix. */
+  router.put("/account/display-name", mw.requireAuth(), (c) => setDisplayName(c, store));
+
+  /**
+   * Deletes the caller's Hades account, then this site's records of them.
+   *
+   * Hades announces a deletion by webhook too, but that is best-effort and arrives
+   * later; doing it here as well means a person who deletes their account is not left
+   * with a name and a principal until a webhook happens to land. Order matters: the
+   * session is live for the Hades call (it is revoked the moment the account goes), and
+   * only a Hades success removes local data, so a wrong password changes nothing
+   * anywhere. Both paths are idempotent, so whichever comes second is a no-op.
+   */
+  router.delete("/account", mw.requireAuth(), async (c) => {
+    const auth = getAuth(c);
+    const authorization = c.req.header("Authorization");
+    if (!authorization) return c.json({ error: "Unauthorized", code: "missing_token" }, 401);
+
+    const body = (await c.req.json().catch(() => ({}))) as { password?: unknown };
+    if (typeof body.password !== "string") {
+      return c.json({ error: "password is required" }, 400);
+    }
+
+    let upstream: Response;
+    try {
+      upstream = await fetch(`${engine.config.hadesBaseUrl}/user/account`, {
+        method: "DELETE",
+        headers: { Authorization: authorization, "Content-Type": "application/json" },
+        body: JSON.stringify({ password: body.password }),
+        redirect: "manual",
+        signal: AbortSignal.timeout(
+          Math.max(engine.config.sessionValidateTimeoutMs, DELETE_ACCOUNT_MIN_TIMEOUT_MS),
+        ),
+      });
+    } catch (error) {
+      deps.logger.error("account deletion could not reach hades", { error: String(error) });
+      return c.json({ error: "Authentication service unavailable" }, 502);
+    }
+
+    if (!upstream.ok) {
+      // Verbatim: a wrong password is Hades to explain.
+      return new Response(await upstream.arrayBuffer(), {
+        status: upstream.status,
+        headers: { "Content-Type": upstream.headers.get("Content-Type") ?? "application/json" },
+      });
+    }
+
+    // Hades has already deleted the account. A local failure must not report failure to
+    // the person, but it must be loud: the leftovers are orphaned.
+    const id = auth.claims.sub;
+    await engine.emit({
+      type: "account_deleted",
+      hadesUserId: id,
+      accountId: auth.account.accountId,
+    });
+    await store
+      .deleteAccountByHadesId(id)
+      .catch((error) =>
+        deps.logger.error("account deleted in Hades but local account cleanup failed", {
+          user: id,
+          error: String(error),
+        }),
+      );
+    await store
+      .deletePrincipal(id)
+      .catch((error) =>
+        deps.logger.error("account deleted in Hades but local principal cleanup failed", {
+          user: id,
+          error: String(error),
+        }),
+      );
+    engine.invalidateSessions(id);
+    return c.body(null, 204);
+  });
 
   /** Who am I here — the local view, not Hades' profile. */
   router.get("/me", mw.requireAuth(), (c) => {

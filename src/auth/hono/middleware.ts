@@ -33,6 +33,13 @@ export function tryGetAuth(c: Context<AuthEnv>): AuthContext | undefined {
 
 export interface HonoAuthMiddleware {
   requireAuth(): MiddlewareHandler<AuthEnv>;
+  /**
+   * Authenticated AND has chosen a display name: until then the person is refused with
+   * `display_name_required` (403). Use on routes that act as them in public; leave plain
+   * `requireAuth()` on the routes they need in order to get a name (`/account/me`,
+   * `PUT /account/me/display-name`, sign-out, account deletion).
+   */
+  requireProfiled(): MiddlewareHandler<AuthEnv>;
   optionalAuth(): MiddlewareHandler<AuthEnv>;
   require(requirement: PermissionRequirement): MiddlewareHandler<AuthEnv>;
   requirePermission(...permissions: string[]): MiddlewareHandler<AuthEnv>;
@@ -52,6 +59,16 @@ export function createAuthMiddleware(engine: AuthEngine): HonoAuthMiddleware {
   const requireAuth = (): MiddlewareHandler<AuthEnv> => async (c, next) => {
     try {
       await ensureAuthenticated(c);
+    } catch (error) {
+      return authErrorResponse(c, error);
+    }
+    await next();
+  };
+
+  const requireProfiled = (): MiddlewareHandler<AuthEnv> => async (c, next) => {
+    try {
+      const auth = await ensureAuthenticated(c);
+      if (!auth.account.displayNameSet) throw new AuthError("display_name_required");
     } catch (error) {
       return authErrorResponse(c, error);
     }
@@ -89,6 +106,7 @@ export function createAuthMiddleware(engine: AuthEngine): HonoAuthMiddleware {
 
   return {
     requireAuth,
+    requireProfiled,
     optionalAuth,
     require,
     requirePermission: (...permissions) => require({ allOf: permissions }),

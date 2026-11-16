@@ -32,7 +32,8 @@ export const auth = createHadesAuth({
 
 const app = new Hono<AuthEnv>();
 app.route("/", auth.gatewayRoutes());      // Hades' own paths, forwarded
-app.route("/auth", auth.routes);           // /auth/me, /auth/verify, role admin
+app.route("/auth", auth.routes);           // /auth/me, /auth/meta, role admin
+app.route("/account", auth.accountRoutes); // /account/me, /account/me/display-name
 app.route("/hooks/hades", auth.webhookRoutes);
 app.use("/articles/admin/*", auth.requirePermission("articles:write"));
 ```
@@ -53,6 +54,7 @@ deliberate (see DECISIONS.md, D-11).
 | Call | Meaning |
 |---|---|
 | `auth.requireAuth()` | Valid token, live session, locally enabled |
+| `auth.requireProfiled()` | As above, and the account has chosen a display name (else `display_name_required`, 403) |
 | `auth.optionalAuth()` | Anonymous allowed; a *bad* token is still rejected |
 | `auth.requirePermission(...p)` | All of `p` |
 | `auth.requireAnyPermission(...p)` | Any of `p` |
@@ -68,10 +70,12 @@ literal.
 |---|---|
 | `auth_principals` | `_id` = Hades `sub`. Local roles, direct/denied permissions, status, revocation watermark |
 | `auth_roles` | `_id` = role name. Permission list, `isDefault` |
+| `auth_accounts` | One per Hades user: display name (unique, case-insensitive), account level, verification tier/link. `_id` is a UUID of our own |
 | `auth_webhook_events` | Delivered event ids, for at-least-once de-duplication. TTL 30 days |
 | `auth_revocations` | Audit trail of why a watermark moved |
 
-No credentials, no email, no username. Hades owns identity.
+No credentials, no email, no username. Hades owns identity. The account display name
+is a *site* name the person chooses; it is not a username and identifies no one to Hades.
 
 ## Endpoints this module adds
 
@@ -79,6 +83,11 @@ No credentials, no email, no username. Hades owns identity.
 |---|---|---|
 | `GET /auth/me` | bearer | Local roles, resolved permissions, token context |
 | `GET /auth/verify` | bearer | Cheap liveness probe for a frontend |
+| `GET /auth/meta` | public | What this API offers, in Charon `AuthMeta` shape (contract v1) |
+| `PUT /auth/account/display-name` | bearer | Rename yourself (same as below) |
+| `DELETE /auth/account` | bearer | Delete your Hades account (body `{password}`), then this site records of you |
+| `GET /account/me` | bearer | Your account: name, level, tier, roles, permissions (snake_case, Charon `AccountResponse`) |
+| `PUT /account/me/display-name` | bearer | Choose a display name. 422 if unusable, 409 if taken |
 | `GET /auth/principals` | `auth:principals:read` | List local principals |
 | `GET /auth/principals/:userId` | `auth:principals:read` | One principal |
 | `PUT /auth/principals/:userId/roles` | `auth:principals:write` | Absolute role set |
@@ -103,12 +112,21 @@ client/realm ids are never published to a browser:
 POST /auth/register  /auth/login  /auth/refresh  /auth/logout
 POST /auth/reset-password[/confirm]   /auth/verify-email[/confirm]
 POST /mfa/verify/totp   /mfa/webauthn/auth/start|finish          (login completion)
+POST /mfa/webauthn/login/start|finish                            (passwordless passkey sign-in)
 POST /mfa/totp/setup|verify  /mfa/webauthn/register/start|finish (enrolment, bearer)
 POST /mfa/totp/disable  /mfa/disable  /mfa/recovery/regenerate   (bearer + password)
-POST /mfa/passkeys/{credId}/revoke
+PUT  /mfa/passkeys/{credId}   POST /mfa/passkeys/{credId}/revoke
+POST /user/verification/self
 GET  /auth/social/{provider}/redirect   POST /auth/social/{provider}/callback
 GET|PUT /user/profile   POST /user/password   DELETE /user/account
 ```
+
+`POST /auth/register` is forwarded too, but additionally honours an optional
+`display_name` (checked first, applied after Hades succeeds).
+
+The gateway forwards the **caller address** to Hades in `X-Forwarded-For`, because Hades
+rate-limits by it. Set `AUTH_TRUSTED_PROXIES` to the reverse proxy in front of this API,
+and add this API address to Hades own `TRUSTED_PROXIES`; see D-27.
 
 `/admin/*` and `/internal/*` are **not** forwarded, by policy rather than oversight —
 Hades-level management belongs in the Hades application.
@@ -126,8 +144,11 @@ untouched.
 1. Create a client for this API: `POST /admin/clients { realm_id, name }`.
    Put the ids in `HADES_CLIENT_ID` / `HADES_REALM_ID`.
 2. Copy Hades' `PASETO_PUBLIC_KEY` into `HADES_PASETO_PUBLIC_KEY`.
-3. Copy Hades' `INTERNAL_API_KEY` into `HADES_INTERNAL_API_KEY`, and make sure
-   `/internal/*` is reachable from this API but not from the internet.
+3. Generate this client API key: `POST /admin/clients/{client_id}/api-key` (shown once)
+   and put it in `HADES_CLIENT_API_KEY`. Hades authenticates `/internal/*` with
+   `X-Client-ID` plus that key as a bearer; the old shared `INTERNAL_API_KEY` /
+   `X-Internal-Key` is gone. Make sure `/internal/*` is reachable from this API but not
+   from the internet.
 4. Register the webhook:
    `PUT /admin/clients/{client_id}/webhook { "url": "https://api.corbin.dev/hooks/hades" }`
    and store the returned `webhook_secret` in `HADES_WEBHOOK_SECRET`. It is shown once.

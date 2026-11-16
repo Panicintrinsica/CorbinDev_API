@@ -7,6 +7,7 @@ import { createAuthRouter } from "../auth/hono/routes.ts";
 import type { MongoAuthStore } from "../auth/mongo/store.ts";
 import type { AuthStore } from "../auth/ports.ts";
 import type { Principal, RoleDefinition } from "../auth/types.ts";
+import type { Account } from "../auth/account.ts";
 
 /**
  * The local AuthZ administration surface. The store is a stub, so these assert the
@@ -86,6 +87,21 @@ function principal(over: Partial<Principal> = {}): Principal {
   };
 }
 
+const ACCOUNT: Account = {
+  accountId: "acct-1",
+  hadesUserId: "user-1",
+  displayName: "Nova",
+  displayNameSet: true,
+  accountLevel: 0,
+  verificationTier: "none",
+  verificationUrl: null,
+  status: "active",
+  createdAt: new Date(),
+  updatedAt: new Date(),
+  lastSeenAt: null,
+  extra: {},
+};
+
 function makeStore(current: Principal = principal()) {
   const calls: Array<{ op: string; args: unknown[] }> = [];
   const record = (op: string) => (...args: unknown[]) => {
@@ -103,6 +119,8 @@ function makeStore(current: Principal = principal()) {
     setStatus: record("setStatus"),
     touchLastSeen: async () => {},
     recordWebhookEvent: async () => true,
+    getAccountByHadesId: async () => ACCOUNT,
+    provisionAccount: async () => ACCOUNT,
     setRoles: record("setRoles"),
     setPermissions: record("setPermissions"),
     banPrincipal: record("banPrincipal"),
@@ -144,6 +162,24 @@ function auth(scope?: string[]) {
 const SUPERADMIN = ["g_superadmin"];
 
 // --- tests -----------------------------------------------------------------------
+
+// CorbinDev_Frontend (src/app/auth/auth.service.ts) reads exactly these fields from
+// GET /auth/me. Charon-contract routes are snake_case; this one must stay as it is.
+describe("GET /auth/me, as the deployed frontend reads it", () => {
+  test("keeps the camelCase Identity shape", async () => {
+    const { router } = setup(principal({ roles: ["editor"] }));
+    const body = await (await router.request("/me", auth())).json();
+
+    expect(typeof body.userId).toBe("string");
+    expect(Array.isArray(body.roles)).toBe(true);
+    expect(Array.isArray(body.permissions)).toBe(true);
+    expect(body.status).toBe("active");
+    expect(Number.isNaN(Date.parse(body.expiresAt))).toBe(false);
+    // Nothing from the Charon contract leaks in and nothing is renamed.
+    expect(body).not.toHaveProperty("effective_permissions");
+    expect(body).not.toHaveProperty("user_id");
+  });
+});
 
 describe("local principal administration", () => {
   test("/me reports local and global authority separately", async () => {

@@ -76,7 +76,8 @@ epoch everywhere will reject every access token.
 
 1. bearer header, 2. signature, 3. claims (`exp`, `iat`, realm, client),
 4. local revocation watermark, 5. Hades `/internal/validate-session`,
-6. local principal (provision if new, reject if disabled), 7. permissions.
+6. local principal (provision if new, reject if disabled), 6b. local account
+(provision if new, reject if disabled; D-25), 7. permissions.
 
 **Why 4 before 5.** Step 4 is a local read we already have to do (it lives on the
 principal document), and a webhook we have processed is strictly fresher than a
@@ -265,6 +266,66 @@ re-login loop.
 - **No distributed cache.** Per-process, deliberately — see D-18.
 - **No `/internal` surface of our own.** If one is added, copy Hades invariant I16:
   an unset key closes the route.
+
+## D-25. A realm account sits beside the principal
+
+Charon (the Rust implementation of this same module) added an *account* per Hades user:
+the name shown to others, the Hades account level (`lvl` claim, kept current by the
+`account_level_changed` webhook) and the verification tier (`verification_changed`). It
+is a separate record from the principal because they answer different questions: the
+principal says what a user may *do* here; the account says who they *are* here.
+
+- **Display names are unique, case-insensitively**, judged on `displayNameKey` =
+  lowercased name behind a partial unique index. Lookalike characters are deliberately
+  not folded. The index, not a prior read, settles a race.
+- **Placeholder names.** A new account is named `<prefix>#<six chars of the id>` with
+  `displayNameSet = false`, retried with a random suffix on collision. The person is
+  expected to replace it. `requireProfiled()` enforces that on routes that act as them in
+  public; it is **not** applied to the admin routes, or an owner would be locked out of
+  administration until they chose a name.
+- **Registration with a name** checks it before forwarding (a taken name must not leave
+  a Hades account the person cannot finish signing up with) and applies it after Hades
+  succeeds, reading `sub`/`lvl` from the access token Hades just returned. That read is
+  unverified on purpose and used only to learn who was created, never to authorize.
+- **Deletion** is announced by Hades (`account_deleted`) *and* done by `DELETE
+  /auth/account`, which deletes in Hades first (so a wrong password changes nothing
+  anywhere) and then locally. Both paths are idempotent; the host `onEvent` handler can
+  therefore hear it twice and must tolerate that.
+- Account status is not propagated from the principal status, same as Charon.
+
+## D-26. Two wire dialects, on purpose
+
+Charon published contract (`/auth/meta`, `/account/me`, display-name errors,
+`contract.ts`) is **snake_case**, because `hades-ng` is written against it. Routes that
+predate it (`GET /auth/me`, principal and role administration) keep their original
+**camelCase** shapes, because the deployed frontend reads them, and error bodies stay
+`{ error: <message>, code }` where Charon has `{ error: <code>, message }`. A port that
+"harmonises" either side breaks a client that works today. New Charon-contract routes
+follow Charon; nothing existing was reshaped to match it.
+
+## D-27. The gateway forwards the caller address
+
+Hades rate-limits by the caller address. A gateway that forwards nothing makes every
+visitor share this process bucket, so one person retries lock out everyone. The gateway
+therefore sends `X-Forwarded-For: <caller>`, replacing whatever the browser sent, where
+the caller is worked out by `client-ip.ts` (identical in rule to Hades and Charon): the
+socket peer, unless the peer is in `AUTH_TRUSTED_PROXIES`, in which case the right-most
+`X-Forwarded-For` entry not itself a trusted proxy. The socket peer comes from Bun
+`server.requestIP`, so `Bun.serve` must pass the server through:
+`fetch: (req, server) => app.fetch(req, { server })`. If it does not, nothing is sent and
+a warning is logged once.
+
+Also held at the gateway: a 1 MiB body bound (64 KiB for register), a 15s upstream
+timeout, no redirects, and `Retry-After` passed back on a 429 so a client can see how
+long to wait (Charon currently drops it).
+
+## D-28. A webhook that failed to apply is released, not just reported
+
+The receiver answers 503 when applying an event fails, so that Hades retries. But the
+event id is recorded for de-duplication *before* it is applied, so without more the retry
+would be found already recorded and acknowledged as a duplicate: the 503 would be a lie
+and a ban could be lost. `applySecurityEvent` therefore un-records the id when applying
+throws. (Charon records first and does not do this yet.)
 
 ## D-23. The pre-Hades auth code is gone
 

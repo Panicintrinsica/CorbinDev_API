@@ -42,6 +42,8 @@ app.route("/", auth.gatewayRoutes());
 // This API's own auth surface: /auth/me, /auth/verify, and local principal/role
 // administration. Distinct paths from the gateway's, so the two coexist.
 app.route("/auth", auth.routes);
+// Account self-service in Charon's wire format: GET /account/me, PUT /account/me/display-name.
+app.route("/account", auth.accountRoutes);
 // Hades security webhooks (bans, revocations). Register this URL with
 // PUT /admin/clients/{client_id}/webhook and put the returned secret in
 // HADES_WEBHOOK_SECRET.
@@ -61,7 +63,9 @@ app.get("ping", async (c) => {
 let port = 32020;
 
 Bun.serve({
-  fetch: app.fetch,
+  // The server is passed through so the gateway can see the caller's socket address and
+  // forward it to Hades, which rate-limits by it (see auth/client-ip.ts).
+  fetch: (request, server) => app.fetch(request, { server }),
   port: port,
 });
 

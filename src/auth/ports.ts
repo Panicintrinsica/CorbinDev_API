@@ -1,3 +1,4 @@
+import type { Account, VerificationTier } from "./account.ts";
 import type { Principal, RoleDefinition } from "./types.ts";
 
 /**
@@ -39,6 +40,51 @@ export interface AuthStore {
   /** Best-effort presence. Failures here must never fail a request. */
   touchLastSeen(userId: string, at: Date): Promise<void>;
 
+  /** Forgets this API's record of a user. Returns whether one existed. */
+  deletePrincipal(userId: string): Promise<boolean>;
+
+  // --- Realm accounts ---------------------------------------------------------
+
+  getAccountByHadesId(hadesUserId: string): Promise<Account | null>;
+  getAccount(accountId: string): Promise<Account | null>;
+
+  /**
+   * Creates the account for a Hades user, or returns the one they already have.
+   * `displayName` is a *placeholder* the system chose: the account starts with
+   * `displayNameSet = false` until the person picks one via `updateDisplayName`.
+   * Throws `AuthError("display_name_taken")` if another account already uses it.
+   * Idempotent under concurrency — the unique index settles it, not a prior read.
+   */
+  provisionAccount(input: {
+    hadesUserId: string;
+    displayName: string;
+    level: number;
+  }): Promise<Account>;
+
+  /** Removes the account for a Hades user. Returns whether one existed. */
+  deleteAccountByHadesId(hadesUserId: string): Promise<boolean>;
+
+  /** Records the Hades verification signal. A no-op when there is no account. */
+  setAccountVerification(
+    hadesUserId: string,
+    tier: VerificationTier,
+    url: string | null,
+  ): Promise<void>;
+
+  updateAccountLevel(accountId: string, level: number): Promise<void>;
+
+  /**
+   * Sets the person's chosen name and marks it set. Names are unique across the site,
+   * case-insensitively; another account holding it is `display_name_taken`. Keeping or
+   * re-casing your own name is fine. `displayName` must already be normalised.
+   */
+  updateDisplayName(accountId: string, displayName: string): Promise<void>;
+
+  /** The account holding this (normalised) name, case-insensitively, or null. */
+  getAccountByDisplayName(displayName: string): Promise<Account | null>;
+  displayNameTaken(displayName: string): Promise<boolean>;
+  listAccounts(): Promise<Account[]>;
+
   /**
    * Records a webhook event id. Returns false when it was already recorded —
    * Hades delivery is at-least-once and must be de-duplicated by the receiver.
@@ -49,6 +95,13 @@ export interface AuthStore {
     userId: string;
     occurredAt: Date;
   }): Promise<boolean>;
+
+  /**
+   * Un-records an event whose application failed, so Hades' retry is applied rather
+   * than swallowed as a duplicate. Without this, "answer 503 so it is retried" is a lie:
+   * the retry would find the id already recorded and be acknowledged without effect.
+   */
+  forgetWebhookEvent(eventId: string): Promise<void>;
 }
 
 /**
@@ -62,6 +115,12 @@ export interface SessionValidator {
     userId: string;
     deviceId: string;
   }): Promise<boolean>;
+
+  /**
+   * Drops any cached verdict for a user. Called when something this process just did
+   * (an account deletion, a webhook) makes a cached "live" answer stale.
+   */
+  invalidateUser?(userId: string): void;
 }
 
 /** Structured, level-tagged logging without binding to a logger. */

@@ -5,9 +5,11 @@ import { MongoAuthStore } from "./mongo/store.ts";
 import { HadesSessionValidator, alwaysLiveSessionValidator } from "./session.ts";
 import { consoleAuthLogger, type AuthLogger, type SessionValidator } from "./ports.ts";
 import { createAuthMiddleware, type HonoAuthMiddleware } from "./hono/middleware.ts";
-import { createAuthRouter } from "./hono/routes.ts";
+import { createAccountRouter, createAuthRouter } from "./hono/routes.ts";
 import { createWebhookRouter } from "./hono/webhook.route.ts";
-import { createHadesProxyRouter } from "./hono/proxy.routes.ts";
+import { createHadesProxyRouter, type HadesProxyOptions } from "./hono/proxy.routes.ts";
+import { fileReport, type ReportRequest } from "./hades-api.ts";
+import type { HostEventHandler } from "./events.ts";
 import type { RoleDefinition } from "./types.ts";
 
 /**
@@ -37,6 +39,14 @@ export function createHadesAuth(options: {
   seedRoles?: RoleDefinition[];
   /** Supply your own, e.g. in tests. Defaults to the Hades internal endpoint. */
   sessionValidator?: SessionValidator;
+  /**
+   * Called for events only the host can act on: an account deleted, its level or
+   * verification changed. At-least-once, so it must be idempotent. A throw is logged,
+   * never propagated.
+   */
+  onEvent?: HostEventHandler;
+  /** Gateway tuning, mainly for tests: how the caller's socket address is found. */
+  gateway?: Pick<HadesProxyOptions, "peerAddress">;
 }) {
   const logger = options.logger ?? consoleAuthLogger;
   const config = loadAuthConfig(options.config);
@@ -47,7 +57,7 @@ export function createHadesAuth(options: {
   const sessionValidator =
     options.sessionValidator ?? hadesValidator ?? alwaysLiveSessionValidator;
 
-  const engine = new AuthEngine(config, store, sessionValidator, logger);
+  const engine = new AuthEngine(config, store, sessionValidator, logger, options.onEvent);
   const middleware: HonoAuthMiddleware = createAuthMiddleware(engine);
 
   if (options.seedRoles?.length) {
@@ -64,21 +74,27 @@ export function createHadesAuth(options: {
     store,
     logger,
     ...middleware,
-    /** `/me`, `/verify`, principal and role administration. */
-    routes: createAuthRouter(engine, store),
+    /** `/me`, `/meta`, `/verify`, account deletion, principal and role administration. Mount at `/auth`. */
+    routes: createAuthRouter(engine, store, { logger }),
+    /** `GET /me` and `PUT /me/display-name`, in Charon's wire format. Mount at `/account`. */
+    accountRoutes: createAccountRouter(engine, store),
     /** Hades security-webhook receiver. Mount at the URL registered with Hades. */
     webhookRoutes: createWebhookRouter({
       config,
       store,
       logger,
       sessionValidator: hadesValidator,
+      emit: (event) => engine.emit(event),
     }),
     /**
      * Hades gateway: the credential, MFA, social and self-service routes, forwarded
      * under their own Hades paths. Mount at the app root so the frontend never has
      * to reach Hades itself. Throws unless HADES_CLIENT_ID / HADES_REALM_ID are set.
      */
-    gatewayRoutes: () => createHadesProxyRouter(config, logger),
+    gatewayRoutes: () =>
+      createHadesProxyRouter(config, logger, { store, peerAddress: options.gateway?.peerAddress }),
+    /** Files a report in Hades' review queue (`POST /internal/reports`). */
+    fileReport: (report: ReportRequest) => fileReport(config, report),
   };
 }
 
@@ -96,6 +112,19 @@ export { MongoAuthStore } from "./mongo/store.ts";
 export { createAuthModels } from "./mongo/schemas.ts";
 export type { AuthStore, SessionValidator, AuthLogger } from "./ports.ts";
 export type { AuthContext, Principal, RoleDefinition, HadesAccessClaims } from "./types.ts";
+export type { HostEvent, HostEventHandler } from "./events.ts";
+export type { ReportRequest } from "./hades-api.ts";
+export {
+  AccountLevel,
+  tierName,
+  baseTier,
+  normaliseDisplayName,
+  DEFAULT_DISPLAY_NAME_RULES,
+  type Account,
+  type VerificationTier,
+} from "./account.ts";
+export { AUTH_CONTRACT_VERSION } from "./contract.ts";
+export { resolveClientIp, parseTrusted } from "./client-ip.ts";
 export {
   permits,
   permitsAll,

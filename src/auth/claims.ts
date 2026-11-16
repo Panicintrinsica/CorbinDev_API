@@ -40,7 +40,12 @@ export function parseClaims(payload: string): HadesAccessClaims {
     scope = raw.scope.split(" ").filter(Boolean);
   }
 
-  return { sub, jti, scope, rid, cid, did, iat, exp, raw };
+  // `lvl` and `ev` arrived with Hades' account-level change; older tokens lack them.
+  const lvl =
+    typeof raw.lvl === "number" && Number.isInteger(raw.lvl) && raw.lvl >= 0 ? raw.lvl : 0;
+  const ev = raw.ev === true;
+
+  return { sub, jti, scope, rid, cid, did, lvl, ev, iat, exp, raw };
 }
 
 export function validateClaims(
