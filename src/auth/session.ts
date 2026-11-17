@@ -52,6 +52,18 @@ export class HadesSessionValidator implements SessionValidator {
       return true;
     }
     if (response.status === 403) {
+      // Only Hades' own 403 means "session dead". Anything in front of it (a CDN, a
+      // proxy rule closing /internal/*) also answers 403, in plain text, and reading
+      // that as a revocation turns a network-policy problem into "every login is
+      // revoked" with nothing in any log. Hades' refusal is always JSON.
+      const type = response.headers.get("content-type") ?? "";
+      if (!type.includes("application/json")) {
+        this.logger.error(
+          "validate-session 403 did not come from Hades (not JSON): is /internal/* blocked in front of it?",
+          { url: this.config.hadesBaseUrl, contentType: type },
+        );
+        throw new Error("validate-session 403 from a non-Hades responder");
+      }
       this.cache.set(key, false, this.config.sessionNegativeCacheTtlSeconds);
       return false;
     }
@@ -63,6 +75,40 @@ export class HadesSessionValidator implements SessionValidator {
       status: response.status,
     });
     throw new Error(`validate-session returned ${response.status}`);
+  }
+
+  /**
+   * Asks Hades about a session that cannot exist. A healthy path answers with Hades' own
+   * JSON 403 ("no such session"), which proves the address is reachable, nothing in front
+   * of it intercepts /internal/*, and the client id and key were accepted (a bad key is a
+   * 401, checked before the lookup). Nothing is cached and no real session is touched.
+   */
+  async probe(): Promise<void> {
+    const nil = "00000000-0000-0000-0000-000000000000";
+    let response: Response;
+    try {
+      response = await fetch(`${this.config.hadesBaseUrl}/internal/validate-session`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Client-ID": this.config.clientId ?? "",
+          "Authorization": `Bearer ${this.config.clientApiKey ?? ""}`,
+        },
+        body: JSON.stringify({ jti: nil, user_id: nil, device_id: nil }),
+        signal: AbortSignal.timeout(this.config.sessionValidateTimeoutMs),
+      });
+    } catch (cause) {
+      throw new Error(`Hades unreachable at ${this.config.hadesBaseUrl}: ${String(cause)}`);
+    }
+    const json = (response.headers.get("content-type") ?? "").includes("application/json");
+    if (response.status === 403 && json) return; // Hades: no such session, as expected
+    if (response.status === 401) {
+      throw new Error("Hades rejected this client id / API key (401)");
+    }
+    if (response.status === 403) {
+      throw new Error("a 403 that is not Hades (not JSON): /internal/* is blocked in front of it");
+    }
+    throw new Error(`unexpected status ${response.status} from validate-session`);
   }
 
   /** Drops a cached verdict, e.g. when a webhook says the session just died. */

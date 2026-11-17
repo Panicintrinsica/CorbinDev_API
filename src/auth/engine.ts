@@ -213,6 +213,15 @@ export class AuthEngine {
     this.sessionValidator.invalidateUser?.(userId);
   }
 
+  /**
+   * Readiness of the upstream dependency. With session validation off there is no
+   * dependency to check. Throws with a reason when Hades cannot be used.
+   */
+  async checkHades(): Promise<void> {
+    if (this.config.sessionValidation === "off") return;
+    await this.sessionValidator.probe?.();
+  }
+
   /** Drops cached role definitions. Call after editing a role. */
   invalidateRoleCache(): void {
     this.roleCache.clear();

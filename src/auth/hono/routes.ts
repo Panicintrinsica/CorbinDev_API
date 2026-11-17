@@ -100,6 +100,20 @@ export function createAuthRouter(
   const router = new Hono<AuthEnv>();
 
   /**
+   * Readiness for deploy checks and monitors: 200 only when this API can really use
+   * Hades. The body carries no detail (it is public); the reason goes to the log.
+   */
+  router.get("/ready", async (c) => {
+    try {
+      await engine.checkHades();
+      return c.json({ ok: true });
+    } catch (error) {
+      deps.logger.error("readiness check failed", { reason: String(error) });
+      return c.json({ ok: false }, 503);
+    }
+  });
+
+  /**
    * Public: what this API offers, so a client can shape its sign-in and sign-up screens.
    * Charon's `AuthMeta`; `contract_version` is what `hades-ng` checks for compatibility.
    */

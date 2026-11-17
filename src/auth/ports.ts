@@ -121,6 +121,14 @@ export interface SessionValidator {
    * (an account deletion, a webhook) makes a cached "live" answer stale.
    */
   invalidateUser?(userId: string): void;
+
+  /**
+   * Proves the validator can actually reach Hades with the credentials it has. Resolves
+   * when Hades itself answered in a way that shows the path and the client key work;
+   * throws, with a reason, when anything else did (unreachable, blocked in front of
+   * Hades, key rejected). Used by the readiness check, never on a request path.
+   */
+  probe?(): Promise<void>;
 }
 
 /** Structured, level-tagged logging without binding to a logger. */
