@@ -123,6 +123,12 @@ export function createAuthMiddleware(engine: AuthEngine): HonoAuthMiddleware {
 export function authErrorResponse(c: Context, error: unknown) {
   if (!isAuthError(error)) throw error;
   const status = statusForAuthError(error.code);
+  // The caller is told only "Unauthorized" (I15), so without this a rejection leaves no
+  // trace at all. Log the code and cause, never the token.
+  console.warn(
+    `[auth] ${c.req.method} ${c.req.path} -> ${status} ${error.code}` +
+      (error.cause ? ` (${String(error.cause)})` : ""),
+  );
   if (status === 503) {
     c.header("Retry-After", "5");
   }
