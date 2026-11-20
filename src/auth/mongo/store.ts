@@ -48,7 +48,7 @@ export class MongoAuthStore implements AuthStore {
           updatedAt: now,
         },
       },
-      { upsert: true, new: true, setDefaultsOnInsert: true },
+      { upsert: true, returnDocument: "after", setDefaultsOnInsert: true },
     )
       .lean<PrincipalDoc>()
       .exec();
@@ -232,7 +232,7 @@ export class MongoAuthStore implements AuthStore {
     const doc = await this.models.Principal.findOneAndUpdate(
       { _id: userId },
       { $set: { roles } },
-      { new: true, upsert: true, setDefaultsOnInsert: true },
+      { returnDocument: "after", upsert: true, setDefaultsOnInsert: true },
     )
       .lean<PrincipalDoc>()
       .exec();
@@ -251,7 +251,7 @@ export class MongoAuthStore implements AuthStore {
     const doc = await this.models.Principal.findOneAndUpdate(
       { _id: userId },
       { $set: update },
-      { new: true, upsert: true, setDefaultsOnInsert: true },
+      { returnDocument: "after", upsert: true, setDefaultsOnInsert: true },
     )
       .lean<PrincipalDoc>()
       .exec();
@@ -268,7 +268,7 @@ export class MongoAuthStore implements AuthStore {
     const doc = await this.models.Principal.findOneAndUpdate(
       { _id: userId },
       { $set: { status: "disabled" }, $max: { revokedBefore: now } },
-      { new: true, upsert: true, setDefaultsOnInsert: true },
+      { returnDocument: "after", upsert: true, setDefaultsOnInsert: true },
     )
       .lean<PrincipalDoc>()
       .exec();
@@ -285,7 +285,7 @@ export class MongoAuthStore implements AuthStore {
     const doc = await this.models.Principal.findOneAndUpdate(
       { _id: userId },
       { $set: { status: "active" } },
-      { new: true },
+      { returnDocument: "after" },
     )
       .lean<PrincipalDoc>()
       .exec();
@@ -313,7 +313,7 @@ export class MongoAuthStore implements AuthStore {
           isDefault: role.isDefault,
         },
       },
-      { new: true, upsert: true, setDefaultsOnInsert: true },
+      { returnDocument: "after", upsert: true, setDefaultsOnInsert: true },
     )
       .lean<RoleDoc>()
       .exec();

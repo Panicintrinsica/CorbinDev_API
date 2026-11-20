@@ -201,7 +201,7 @@ media.post("/admin", async (c) => {
           uploadedBy: principal.userId,
         },
       },
-      { upsert: true, new: true },
+      { upsert: true, returnDocument: "after" },
     );
     return finish(record);
   }
@@ -266,7 +266,7 @@ media.post("/admin", async (c) => {
         uploadedBy: principal.userId,
       },
     },
-    { upsert: true, new: true },
+    { upsert: true, returnDocument: "after" },
   );
 
   return finish(record);
