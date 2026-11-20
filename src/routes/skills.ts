@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { lifecycle } from "../media/catalog.ts";
+import { dropped, referencedPaths } from "../media/lifecycle.ts";
 import DB_Skill from "../schema/skill.schema.ts";
 import {
   BlockContentError,
@@ -158,6 +160,8 @@ skills.put("/admin/:id", async (c) => {
   const skill = await DB_Skill.findById(c.req.param("id"));
   if (!skill) return c.json({ error: "Not found" }, 404);
 
+  const before = referencedPaths(skill);
+
   if (typeof body.name === "string" && body.name.trim()) {
     skill.name = body.name.trim();
   }
@@ -202,6 +206,8 @@ skills.put("/admin/:id", async (c) => {
   }
 
   await skill.save();
+  // A replaced logo, or an image removed from the write-up, goes with the save.
+  await lifecycle.release(dropped(before, referencedPaths(skill)));
 
   return c.json(skill);
 });
@@ -209,6 +215,8 @@ skills.put("/admin/:id", async (c) => {
 skills.delete("/admin/:id", async (c) => {
   const skill = await DB_Skill.findByIdAndDelete(c.req.param("id"));
   if (!skill) return c.json({ error: "Not found" }, 404);
+
+  await lifecycle.releaseOwner("skill", skill.id, referencedPaths(skill));
 
   return c.json({ deleted: skill.id });
 });

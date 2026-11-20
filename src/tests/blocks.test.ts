@@ -88,6 +88,39 @@ describe("normalizeDocument", () => {
     ]);
   });
 
+  test("keeps well-formed responsive variants and drops malformed ones", () => {
+    const normalized = normalizeDocument(
+      doc({
+        type: "image",
+        data: {
+          file: {
+            url: "/media/2026/08/a-1600.webp",
+            variants: [
+              { format: "webp", width: 800, url: "/media/2026/08/a-800.webp" },
+              { format: "avif", width: 480, url: "/media/2026/08/a-480.avif" },
+              { format: "gif", width: 480, url: "/media/2026/08/a-480.gif" },
+              { format: "webp", width: -5, url: "/media/2026/08/a-5.webp" },
+              { format: "webp", width: 100, url: "javascript:alert(1)" },
+              { format: "webp", width: 100, url: "data:image/png;base64,AAAA" },
+            ],
+          },
+        },
+      }),
+    );
+
+    expect((normalized.blocks[0]!.data.file as { variants: unknown }).variants).toEqual([
+      { format: "avif", width: 480, url: "/media/2026/08/a-480.avif" },
+      { format: "webp", width: 800, url: "/media/2026/08/a-800.webp" },
+    ]);
+  });
+
+  test("an image with no variants is still valid", () => {
+    const normalized = normalizeDocument(
+      doc({ type: "image", data: { file: { url: "/media/2026/08/a.webp" } } }),
+    );
+    expect(normalized.blocks[0]!.data.file).toEqual({ url: "/media/2026/08/a.webp" });
+  });
+
   test("rejects an inline data URL in an image block", () => {
     expect(() =>
       normalizeDocument(

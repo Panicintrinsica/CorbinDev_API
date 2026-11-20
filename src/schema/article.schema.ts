@@ -34,6 +34,12 @@ const articleSchema = new mongoose.Schema(
      */
     plainText: { type: String, required: true, select: false },
 
+    /**
+     * Optional headline image: `{ url, width, height, variants, alt }`, at least
+     * 800px wide. Validated by `content/banner.ts`.
+     */
+    banner: { type: mongoose.Schema.Types.Mixed, required: false },
+
     category: { type: String, required: true },
     tags: { type: [String], required: true },
     author: { type: String, required: true },

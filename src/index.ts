@@ -6,6 +6,7 @@ import skillsRouter from "./routes/skills.ts";
 import projectRouter from "./routes/projects.ts";
 import contentRouter from "./routes/content.ts";
 import mediaRouter from "./routes/media.ts";
+import { startMediaSweeper } from "./media/sweeper.ts";
 import { auth, PERMISSIONS } from "./auth.setup.ts";
 import type { AuthEnv } from "./auth/index.ts";
 
@@ -70,3 +71,5 @@ Bun.serve({
 });
 
 console.log(`Application is running and listening on port ${port}`);
+
+startMediaSweeper();

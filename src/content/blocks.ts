@@ -284,40 +284,88 @@ function normalizeListItems(input: unknown, depth: number): unknown[] {
 }
 
 function normalizeImage(data: Record<string, unknown>, index: number) {
-  const file = (data.file ?? {}) as Record<string, unknown>;
+  return {
+    file: normalizeImageFile(data.file, `image block ${index}`),
+    caption: sanitizeInline(data.caption),
+    withBorder: data.withBorder === true,
+    withBackground: data.withBackground === true,
+    stretched: data.stretched === true,
+  };
+}
+
+/**
+ * Validates an uploaded image reference: `{ url, width, height, variants }`.
+ * Shared by article image blocks and project galleries. `label` names the owner in
+ * error messages.
+ */
+export function normalizeImageFile(input: unknown, label: string) {
+  const file = (input ?? {}) as Record<string, unknown>;
   const url = typeof file.url === "string" ? file.url.trim() : "";
 
   if (!url) {
-    throw new BlockContentError(`image block ${index} has no file url`);
+    throw new BlockContentError(`${label} has no file url`);
   }
   // The old dashboard editor inlined images as base64. Rejecting them outright is
   // the point of having an upload endpoint: a data URL would bloat the document,
   // defeat caching, and eventually hit Mongo's 16MB ceiling.
   if (/^data:/i.test(url)) {
     throw new BlockContentError(
-      `image block ${index} contains an inline data URL - upload the file to /media/admin and store the returned url instead`,
+      `${label} contains an inline data URL - upload the file to /media/admin and store the returned url instead`,
     );
   }
   if (!isSafeUrl(url)) {
-    throw new BlockContentError(`image block ${index} has an unsupported file url`);
+    throw new BlockContentError(`${label} has an unsupported file url`);
   }
 
   const width = Number(file.width);
   const height = Number(file.height);
+  const variants = normalizeVariants(file.variants, label);
 
   return {
-    file: {
-      url,
-      // Intrinsic size travels with the block so the frontend can reserve space
-      // and avoid layout shift while the image loads.
-      ...(Number.isInteger(width) && width > 0 ? { width } : {}),
-      ...(Number.isInteger(height) && height > 0 ? { height } : {}),
-    },
-    caption: sanitizeInline(data.caption),
-    withBorder: data.withBorder === true,
-    withBackground: data.withBackground === true,
-    stretched: data.stretched === true,
+    url,
+    // The responsive set generated at upload, for `srcset`. Optional: images
+    // from before processing existed are just `url`.
+    ...(variants.length > 0 ? { variants } : {}),
+    // Intrinsic size travels with the block so the frontend can reserve space
+    // and avoid layout shift while the image loads.
+    ...(Number.isInteger(width) && width > 0 ? { width } : {}),
+    ...(Number.isInteger(height) && height > 0 ? { height } : {}),
   };
+}
+
+/** Generous: 5 widths x 2 formats today, with room to grow the ladder. */
+const MAX_VARIANTS = 24;
+
+/**
+ * Keeps only well-formed `{ format, width, url }` entries.
+ *
+ * Malformed entries are dropped rather than failing the save: the block still has
+ * its `url`, so the worst outcome is an image that is not responsive. Each url
+ * passes the same check as the block's own.
+ */
+function normalizeVariants(input: unknown, label: string) {
+  if (input === undefined || input === null) return [];
+  if (!Array.isArray(input)) {
+    throw new BlockContentError(`${label} has malformed variants`);
+  }
+
+  const seen = new Set<string>();
+  const variants: Array<{ format: "avif" | "webp"; width: number; url: string }> = [];
+
+  for (const entry of input.slice(0, MAX_VARIANTS)) {
+    const raw = (entry ?? {}) as Record<string, unknown>;
+    const url = typeof raw.url === "string" ? raw.url.trim() : "";
+    const width = Number(raw.width);
+
+    if (raw.format !== "avif" && raw.format !== "webp") continue;
+    if (!Number.isInteger(width) || width < 1 || width > 10_000) continue;
+    if (!url || /^data:/i.test(url) || !isSafeUrl(url) || seen.has(url)) continue;
+
+    seen.add(url);
+    variants.push({ format: raw.format, width, url });
+  }
+
+  return variants.sort((a, b) => a.width - b.width);
 }
 
 // --- Inline HTML sanitizing ---------------------------------------------------

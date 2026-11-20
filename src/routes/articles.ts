@@ -1,4 +1,7 @@
 import { Hono } from "hono";
+import { lifecycle } from "../media/catalog.ts";
+import { normalizeBanner, type Banner } from "../content/banner.ts";
+import { dropped, referencedPaths } from "../media/lifecycle.ts";
 import DB_Article from "../schema/article.schema.ts";
 import { createURI, getCurrentDate } from "../util.ts";
 import {
@@ -24,7 +27,7 @@ import { getAuth, type AuthEnv } from "../auth/index.ts";
 const articles = new Hono<AuthEnv>();
 
 /** Fields a reader needs for a card. Notably not `content`, which is the whole body. */
-const CARD_FIELDS = "title date uri excerpt category tags author createdAt updatedAt";
+const CARD_FIELDS = "title date uri excerpt banner category tags author createdAt updatedAt";
 
 /** A body larger than this is a runaway client, not an article. */
 const MAX_CONTENT_BYTES = 512 * 1024;
@@ -231,9 +234,18 @@ articles.post("/admin", async (c) => {
     throw error;
   }
 
+  let banner: Banner | null;
+  try {
+    banner = normalizeBanner(body.banner);
+  } catch (error) {
+    if (error instanceof BlockContentError) return c.json({ error: error.message }, 400);
+    throw error;
+  }
+
   const date = getCurrentDate();
 
   const article = new DB_Article({
+    ...(banner ? { banner } : {}),
     title,
     date,
     // date + uri is the article's permanent address, so the slug is settled once,
@@ -259,6 +271,8 @@ articles.put("/admin/:id", async (c) => {
   const article = await DB_Article.findById(c.req.param("id")).select("+plainText");
   if (!article) return c.json({ error: "Not found" }, 404);
 
+  const before = referencedPaths(article);
+
   if (typeof body.title === "string" && body.title.trim()) {
     article.title = body.title.trim();
   }
@@ -281,6 +295,17 @@ articles.put("/admin/:id", async (c) => {
     article.excerpt = body.excerpt.trim();
   }
 
+  // Absent leaves the banner alone; null (or an empty object) removes it.
+  if (body.banner !== undefined) {
+    try {
+      article.banner = normalizeBanner(body.banner) ?? undefined;
+      article.markModified("banner");
+    } catch (error) {
+      if (error instanceof BlockContentError) return c.json({ error: error.message }, 400);
+      throw error;
+    }
+  }
+
   if (typeof body.category === "string") article.category = body.category;
   if (Array.isArray(body.tags)) {
     article.tags = body.tags.filter((t: unknown) => typeof t === "string");
@@ -298,6 +323,8 @@ articles.put("/admin/:id", async (c) => {
   }
 
   await article.save();
+  // Images this save dropped from the body are deleted unless something else uses them.
+  await lifecycle.release(dropped(before, referencedPaths(article)));
 
   return c.json(article);
 });
@@ -305,6 +332,8 @@ articles.put("/admin/:id", async (c) => {
 articles.delete("/admin/:id", async (c) => {
   const article = await DB_Article.findByIdAndDelete(c.req.param("id"));
   if (!article) return c.json({ error: "Not found" }, 404);
+
+  await lifecycle.releaseOwner("article", article.id, referencedPaths(article));
 
   return c.json({ deleted: article.id });
 });

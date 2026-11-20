@@ -12,6 +12,8 @@
  * four integers would be a poor trade for a low-traffic site.
  */
 
+import { looksLikeSvg, svgDimensions } from "./svg.ts";
+
 export interface ImageInfo {
   mimeType: string;
   extension: string;
@@ -59,6 +61,12 @@ const FORMATS: Format[] = [
     // AVIF hides its size in a nested ISOBMFF `ispe` box. Not worth decoding here;
     // the renderer falls back to an intrinsic-size-free layout.
     dimensions: () => null,
+  },
+  {
+    mimeType: "image/svg+xml",
+    extension: "svg",
+    matches: looksLikeSvg,
+    dimensions: svgDimensions,
   },
 ];
 

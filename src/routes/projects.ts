@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { lifecycle } from "../media/catalog.ts";
+import { dropped, referencedPaths } from "../media/lifecycle.ts";
 import DB_Project from "../schema/project.schema.ts";
 import DB_Skill from "../schema/skill.schema.ts";
 import { createURI } from "../util.ts";
@@ -9,6 +11,7 @@ import {
   normalizeDocument,
   type EditorDocument,
 } from "../content/blocks.ts";
+import { normalizeGallery, type GalleryItem } from "../content/gallery.ts";
 import type { AuthEnv } from "../auth/index.ts";
 
 const projects = new Hono<AuthEnv>();
@@ -177,6 +180,14 @@ projects.post("/admin", async (c) => {
     }
   }
 
+  let gallery: GalleryItem[];
+  try {
+    gallery = normalizeGallery(body.gallery);
+  } catch (error) {
+    if (error instanceof BlockContentError) return c.json({ error: error.message }, 400);
+    throw error;
+  }
+
   const category = typeof body.category === "string" ? body.category.trim() : "personal";
   const platform = typeof body.platform === "string" ? body.platform.trim() : "Web";
   const blurb = typeof body.blurb === "string" && body.blurb.trim()
@@ -208,6 +219,7 @@ projects.post("/admin", async (c) => {
     startDate: typeof body.startDate === "string" ? body.startDate : "",
     endDate: typeof body.endDate === "string" ? body.endDate : "",
     thumbnail: typeof body.thumbnail === "string" ? body.thumbnail.trim() : "",
+    gallery,
     isCurrent: body.isCurrent === true,
     isFeatured: body.isFeatured === true,
     isPublished: body.isPublished === true,
@@ -222,6 +234,8 @@ projects.put("/admin/:id", async (c) => {
   const body = await c.req.json();
   const project = await DB_Project.findById(c.req.param("id")).select("+plainText");
   if (!project) return c.json({ error: "Not found" }, 404);
+
+  const before = referencedPaths(project);
 
   if (typeof body.name === "string" && body.name.trim()) {
     project.name = body.name.trim();
@@ -265,6 +279,16 @@ projects.put("/admin/:id", async (c) => {
     }
   }
 
+  if (body.gallery !== undefined) {
+    try {
+      project.gallery = normalizeGallery(body.gallery);
+      project.markModified("gallery");
+    } catch (error) {
+      if (error instanceof BlockContentError) return c.json({ error: error.message }, 400);
+      throw error;
+    }
+  }
+
   if (typeof body.blurb === "string") {
     project.blurb = body.blurb.trim();
   }
@@ -280,6 +304,7 @@ projects.put("/admin/:id", async (c) => {
   }
 
   await project.save();
+  await lifecycle.release(dropped(before, referencedPaths(project)));
 
   return c.json(project);
 });
@@ -287,6 +312,8 @@ projects.put("/admin/:id", async (c) => {
 projects.delete("/admin/:id", async (c) => {
   const project = await DB_Project.findByIdAndDelete(c.req.param("id"));
   if (!project) return c.json({ error: "Not found" }, 404);
+
+  await lifecycle.releaseOwner("project", project.id, referencedPaths(project));
 
   return c.json({ deleted: project.id });
 });

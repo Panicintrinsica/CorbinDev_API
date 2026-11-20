@@ -22,6 +22,12 @@ const projectSchema = new mongoose.Schema(
     startDate: { type: String, required: false },
     endDate: { type: String, required: false },
     thumbnail: { type: String, required: false },
+    /**
+     * Screenshots and videos, in display order. Validated by `content/gallery.ts`:
+     * `{ type: "image", caption, image: { url, width, height, variants } }` or
+     * `{ type: "video", caption, videoId }` (a YouTube id).
+     */
+    gallery: { type: [mongoose.Schema.Types.Mixed], default: [] },
     isCurrent: { type: Boolean, default: false },
     isFeatured: { type: Boolean, default: false },
     isPublished: { type: Boolean, default: false },

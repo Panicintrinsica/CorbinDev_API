@@ -1,18 +1,11 @@
-import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import { identifyImage } from "../media/image.ts";
 
-// storage.ts reads MEDIA_DIR at module scope, so the temp root has to be in place
-// before it is imported. Hence the dynamic import rather than a static one.
-const root = await mkdtemp(join(tmpdir(), "corbin-media-"));
-process.env.MEDIA_DIR = root;
+// MEDIA_DIR is pointed at a throwaway directory by the test preload (setup.ts),
+// before this or any other file can import storage.ts.
 const storage = await import("../media/storage.ts");
-
-afterAll(async () => {
-  await rm(root, { recursive: true, force: true });
-});
+const root = storage.MEDIA_ROOT;
 
 // --- Synthetic headers, built to the shape each decoder walks -----------------
 
@@ -109,7 +102,7 @@ describe("identifyImage", () => {
   });
 
   test("rejects anything that is not an accepted image format", () => {
-    const svg = new TextEncoder().encode('<svg onload="alert(1)"></svg>');
+    const svg = new TextEncoder().encode('<html><body>hi</body></html>');
     expect(identifyImage(svg)).toBeNull();
     expect(identifyImage(new TextEncoder().encode("MZ\x90\x00"))).toBeNull();
     expect(identifyImage(new Uint8Array(0))).toBeNull();
@@ -139,6 +132,45 @@ describe("storage paths", () => {
     expect(storage.toStoredPath(`https://api.corbin.dev${path}`)).toBe(path);
     expect(storage.toStoredPath(`${path}?v=2`)).toBe(path);
     expect(storage.toStoredPath("https://evil.example/media/2026/08/x.png")).toBeNull();
+  });
+});
+
+describe("variants and originals", () => {
+  const hash = "c".repeat(64);
+  const now = new Date(Date.UTC(2026, 7, 15));
+
+  test("variants share the upload's hash and encode their width", () => {
+    expect(storage.pathFor("media", hash, "avif", now, 800)).toBe(
+      `/media/2026/08/${"c".repeat(32)}-800.avif`,
+    );
+    expect(storage.pathFor("originals", hash, "png", now)).toBe(
+      `/originals/2026/08/${"c".repeat(32)}.png`,
+    );
+  });
+
+  test("only served paths are routable; originals never are", () => {
+    const variant = `${"c".repeat(32)}-800.avif`;
+    expect(storage.pathFromSegments("2026", "08", variant)).toBe(`/media/2026/08/${variant}`);
+    // The route builds /media/... itself, so an originals path cannot be asked for.
+    expect(storage.pathFromSegments("2026", "08", "../../originals/2026/08/x.png")).toBeNull();
+    expect(storage.toStoredPath(`/originals/2026/08/${"c".repeat(32)}.png`)).not.toBeNull();
+  });
+
+  test("writes variants and a private original, and removes them", async () => {
+    const original = storage.pathFor("originals", hash, "png", now);
+    const variant = storage.pathFor("media", hash, "webp", now, 480);
+
+    await storage.write(original, new Uint8Array([1, 2, 3]));
+    await storage.write(variant, new Uint8Array([4, 5, 6]));
+
+    expect([...new Uint8Array(await (await storage.read(variant))!.arrayBuffer())]).toEqual([4, 5, 6]);
+    // On disk the original lives in its own subtree, apart from served files.
+    expect(await Bun.file(join(root, "originals", "2026", "08", `${"c".repeat(32)}.png`)).exists()).toBe(true);
+    expect(await Bun.file(join(root, "2026", "08", `${"c".repeat(32)}-480.webp`)).exists()).toBe(true);
+
+    await storage.remove(original);
+    await storage.remove(variant);
+    expect(await storage.read(variant)).toBeNull();
   });
 });
 
