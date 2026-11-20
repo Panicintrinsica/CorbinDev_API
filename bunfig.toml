@@ -1,0 +1,4 @@
+[test]
+# Runs before any test file, so storage.ts (which reads MEDIA_DIR at import) never
+# sees the real ./media directory, whichever test happens to import it first.
+preload = ["./src/tests/setup.ts"]

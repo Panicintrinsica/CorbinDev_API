@@ -6,6 +6,7 @@ import skillsRouter from "./routes/skills.ts";
 import projectRouter from "./routes/projects.ts";
 import contentRouter from "./routes/content.ts";
 import mediaRouter from "./routes/media.ts";
+import profileRouter from "./routes/profile.ts";
 import { startMediaSweeper } from "./media/sweeper.ts";
 import { auth, PERMISSIONS } from "./auth.setup.ts";
 import type { AuthEnv } from "./auth/index.ts";
@@ -56,6 +57,8 @@ app.route("/projects", projectRouter);
 app.route("/content", contentRouter);
 // Uploaded images. The serving half is public; /media/admin is gated above.
 app.route("/media", mediaRouter);
+// A person's own profile picture, keyed by their Hades user id.
+app.route("/profile", profileRouter);
 
 app.get("ping", async (c) => {
   return c.text("pong");
