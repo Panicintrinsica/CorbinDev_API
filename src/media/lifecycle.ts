@@ -214,6 +214,7 @@ export function referencedPaths(entity: {
   gallery?: unknown;
   banner?: unknown;
   avatar?: unknown;
+  cards?: unknown;
 }): Set<string> {
   const paths = new Set<string>();
 
@@ -229,6 +230,13 @@ export function referencedPaths(entity: {
     for (const item of entity.gallery) {
       const url = item?.image?.url;
       if (typeof url === "string") addPath(paths, url);
+    }
+  }
+  if (Array.isArray(entity.cards)) {
+    for (const card of entity.cards) {
+      for (const image of Array.isArray(card?.images) ? card.images : []) {
+        if (typeof image?.url === "string") addPath(paths, image.url);
+      }
     }
   }
   for (const field of [entity.logo, entity.thumbnail]) {

@@ -5,6 +5,8 @@ import articleRouter from "./routes/articles.ts";
 import skillsRouter from "./routes/skills.ts";
 import projectRouter from "./routes/projects.ts";
 import contentRouter from "./routes/content.ts";
+import homeRouter from "./routes/home.ts";
+import feedRouter from "./routes/feed.ts";
 import mediaRouter from "./routes/media.ts";
 import profileRouter from "./routes/profile.ts";
 import { startMediaSweeper } from "./media/sweeper.ts";
@@ -33,6 +35,8 @@ app.use("/skills/admin", auth.requirePermission(PERMISSIONS.skillsWrite));
 app.use("/skills/admin/*", auth.requirePermission(PERMISSIONS.skillsWrite));
 app.use("/content/admin", auth.requirePermission(PERMISSIONS.contentWrite));
 app.use("/content/admin/*", auth.requirePermission(PERMISSIONS.contentWrite));
+app.use("/home/admin", auth.requirePermission(PERMISSIONS.contentWrite));
+app.use("/home/admin/*", auth.requirePermission(PERMISSIONS.contentWrite));
 app.use("/media/admin", auth.requirePermission(PERMISSIONS.mediaWrite));
 app.use("/media/admin/*", auth.requirePermission(PERMISSIONS.mediaWrite));
 
@@ -52,9 +56,13 @@ app.route("/account", auth.accountRoutes);
 app.route("/hooks/hades", auth.webhookRoutes);
 
 app.route("/articles", articleRouter);
+// The blog's RSS feed.
+app.route("/rss.xml", feedRouter);
 app.route("/skills", skillsRouter);
 app.route("/projects", projectRouter);
 app.route("/content", contentRouter);
+// The home page's feature cards. /home/admin is gated above.
+app.route("/home", homeRouter);
 // Uploaded images. The serving half is public; /media/admin is gated above.
 app.route("/media", mediaRouter);
 // A person's own profile picture, keyed by their Hades user id.

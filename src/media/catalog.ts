@@ -7,6 +7,7 @@
  */
 
 import DB_Article from "../schema/article.schema.ts";
+import DB_HomeConfig from "../schema/homeConfig.schema.ts";
 import DB_Media from "../schema/media.schema.ts";
 import DB_Profile from "../schema/profile.schema.ts";
 import DB_Project from "../schema/project.schema.ts";
@@ -41,6 +42,7 @@ const REFERENCE_FIELDS: Array<{
 }> = [
   { model: DB_Article, fields: ["content.blocks.data.file.url", "banner.url"] },
   { model: DB_Profile, fields: ["avatar.url"] },
+  { model: DB_HomeConfig, fields: ["cards.images.url"] },
   {
     model: DB_Skill,
     fields: ["content.blocks.data.file.url", "notes.blocks.data.file.url", "notes", "logo"],
